@@ -29,10 +29,11 @@ import { sortBy } from '@shell/utils/sort';
 
 import { compare, sortable } from '@shell/utils/version';
 import { isHarvesterSatisfiesVersion } from '@shell/utils/cluster';
-
-import { BadgeState } from '@components/BadgeState';
 import { Banner } from '@components/Banner';
 import CruResource, { CONTEXT_HOOK_EDIT_YAML } from '@shell/components/CruResource';
+import * as VERSION from '@shell/utils/version';
+import { BadgeState } from '@components/BadgeState';
+
 import Loading from '@shell/components/Loading';
 import NameNsDescription from '@shell/components/form/NameNsDescription';
 import Tab from '@shell/components/Tabbed/Tab';
@@ -44,9 +45,10 @@ import semver from 'semver';
 import { SETTING } from '@shell/config/settings';
 import { base64Encode } from '@shell/utils/crypto';
 import { CAPI as CAPI_ANNOTATIONS, CLUSTER_BADGE } from '@shell/config/labels-annotations';
-import AgentEnv from '@shell/edit/provisioning.cattle.io.cluster/AgentEnv';
-import Labels from '@shell/edit/provisioning.cattle.io.cluster/Labels';
 import MachinePool from '@shell/edit/provisioning.cattle.io.cluster/tabs/MachinePool';
+import AgentEnv from './AgentEnv';
+import Labels from './Labels';
+import MachinePool from './MachinePool';
 import SelectCredential from './SelectCredential';
 import { ELEMENTAL_SCHEMA_IDS, KIND, ELEMENTAL_CLUSTER_PROVIDER } from '../../config/elemental-types';
 import AgentConfiguration from '@shell/edit/provisioning.cattle.io.cluster/tabs/AgentConfiguration';
@@ -177,6 +179,9 @@ export default {
     }
 
     const truncateLimit = this.value.defaultHostnameLengthLimit || 0;
+    // Store the initial PSP template name, so we can set it back if needed
+    const lastDefaultPodSecurityPolicyTemplateName = this.value.spec.defaultPodSecurityPolicyTemplateName;
+    const previousKubernetesVersion = this.value.spec.kubernetesVersion;
 
     return {
       loadedOnce:                      false,
@@ -214,6 +219,8 @@ export default {
       harvesterVersionRange: {},
       cisOverride:           false,
       truncateLimit,
+      cisPsaChangeBanner:    false,
+      psps:                  null, // List of policies if any
       busy:                  false,
       machinePoolValidation: {}, // map of validation states for each machine pool
       machinePoolErrors:     {},
@@ -990,7 +997,7 @@ export default {
     /**
      * set instanceNameLimit to 15 to all pool machine if truncateHostnames checkbox is clicked
      */
-    truncateHostname(neu) {
+    truncateName(neu) {
       if (neu) {
         this.value.defaultHostnameLengthLimit = NETBIOS_TRUNCATION_LENGTH;
         this.truncateLimit = NETBIOS_TRUNCATION_LENGTH;
