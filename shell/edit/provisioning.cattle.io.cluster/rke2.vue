@@ -48,7 +48,6 @@ import { CAPI as CAPI_ANNOTATIONS, CLUSTER_BADGE } from '@shell/config/labels-an
 import MachinePool from '@shell/edit/provisioning.cattle.io.cluster/tabs/MachinePool';
 import AgentEnv from './AgentEnv';
 import Labels from './Labels';
-import MachinePool from './MachinePool';
 import SelectCredential from './SelectCredential';
 import { ELEMENTAL_SCHEMA_IDS, KIND, ELEMENTAL_CLUSTER_PROVIDER } from '../../config/elemental-types';
 import AgentConfiguration from '@shell/edit/provisioning.cattle.io.cluster/tabs/AgentConfiguration';
