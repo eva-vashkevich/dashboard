@@ -10,7 +10,6 @@ import Nuxt from '../components/nuxt/nuxt.js';
 import App from './App.js';
 import { setContext, getLocation, getRouteData, normalizeError } from '../utils/nuxt';
 import { createStore } from '../config/store.js';
-import { createHead } from '@unhead/vue';
 
 /* Plugins */
 import { loadDirectives } from '@shell/plugins';
@@ -32,7 +31,6 @@ import '../plugins/i18n';
 import '../plugins/global-formatters';
 import '../plugins/trim-whitespace';
 import '../plugins/extend-router';
-import '../plugins/unhead';
 
 import intNumber from '../plugins/int-number';
 import positiveIntNumber from '../plugins/positive-int-number.js';
@@ -112,7 +110,6 @@ const defaultTransition = {
 };
 
 async function createApp(ssrContext, config = {}) {
-  const head = createHead();
   const router = await createRouter(ssrContext, config);
 
   const store = createStore(ssrContext);
@@ -125,7 +122,6 @@ async function createApp(ssrContext, config = {}) {
   // here we inject the router and store to all child components,
   // making them available everywhere as `this.$router` and `this.$store`.
   const app = {
-    head,
     store,
     router,
     nuxt: {
