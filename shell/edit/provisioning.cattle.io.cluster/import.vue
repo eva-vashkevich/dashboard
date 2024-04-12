@@ -16,6 +16,8 @@ import { addObject } from '@shell/utils/array';
 import { HIDE_DESC, mapPref } from '@shell/store/prefs';
 import Labels from '@shell/edit/provisioning.cattle.io.cluster/Labels';
 import AgentEnv from '@shell/edit/provisioning.cattle.io.cluster/AgentEnv';
+import EditImported from './EditImported';
+import { _EDIT } from '@shell/config/query-params';
 
 const HARVESTER_HIDE_KEY = 'cm-harvester-import';
 
@@ -29,7 +31,8 @@ export default {
     Tab,
     Tabbed,
     Labels,
-    AgentEnv
+    AgentEnv,
+    EditImported
   },
 
   mixins: [CreateEditView],
@@ -78,6 +81,9 @@ export default {
           resource: HCI.CLUSTER,
         }
       } : null;
+    },
+    isEdit() {
+      return this.mode === 'edit'; // _EDIT;
     }
   },
 
@@ -126,6 +132,18 @@ export default {
 
 <template>
   <Loading v-if="$fetchState.pending" />
+  <EditImported
+    v-else-if="isEdit"
+    v-model="value"
+    :live-value="liveValue"
+    :initial-value="initialValue"
+    :mode="mode"
+    :provider="provider"
+    :errors="errors"
+    component-testid="cluster-manager-import-edit"
+    @finish="saveOverride"
+    @error="e=>errors = e"
+  />
   <CruResource
     v-else
     :mode="mode"

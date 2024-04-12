@@ -21,6 +21,7 @@ import { BLANK_CLUSTER } from '@shell/store/store-types.js';
 import { ELEMENTAL_PRODUCT_NAME, ELEMENTAL_CLUSTER_PROVIDER } from '../../config/elemental-types';
 import Rke2Config from './rke2';
 import Import from './import';
+import EditImported from './EditImported';
 
 const SORT_GROUPS = {
   template:  1,
@@ -46,7 +47,8 @@ export default {
     Loading,
     Rke2Config,
     SelectIconGrid,
-    ToggleSwitch
+    ToggleSwitch,
+    EditImported
   },
 
   mixins: [CreateEditView],
@@ -165,7 +167,7 @@ export default {
     const subType = this.$route.query[SUB_TYPE] || null;
     const rkeType = this.$route.query[RKE_TYPE] || null;
     const chart = this.$route.query[CHART] || null;
-    const isImport = this.realMode === _IMPORT;
+    const isImport = this.realMode === _IMPORT || this.value.isImported;
 
     return {
       nodeDrivers:      [],
@@ -201,6 +203,8 @@ export default {
     _RKE2: () => _RKE2,
 
     emberLink() {
+      console.log(`this.subType: ${this.subType} isImported: ${this.value.isImported}`)
+
       if (this.value) {
         if (this.value.provisioner) {
           const matchingSubtype = this.subTypes.find((st) => st.id.toLowerCase() === this.value.provisioner.toLowerCase());
@@ -241,9 +245,17 @@ export default {
 
           return '';
         }
+        //HEREEEEEE
+        if (this.value.isImported) {
+          this.subType = 'import';
+          return '';
+        }
 
         if ( this.value.mgmt?.emberEditPath ) {
           // Iframe an old page
+          // this.isImport = true;
+          // this.selectType('custom', true);
+
           return this.value.mgmt.emberEditPath;
         }
       }
@@ -637,6 +649,8 @@ export default {
       v-model="value"
       :mode="mode"
       :provider="subType"
+      :live-value="liveValue"
+      :initial-value="initialValue"
     />
     <template v-else-if="subType">
       <!-- allow extensions to provide their own cluster provisioning form -->

@@ -5,6 +5,7 @@ import isArray from 'lodash/isArray';
 import merge from 'lodash/merge';
 import CreateEditView from '@shell/mixins/create-edit-view';
 import FormValidation from '@shell/mixins/form-validation';
+import ClusterManagement from '@shell/mixins/cluster-management';
 import { normalizeName } from '@shell/utils/kube';
 
 import {
@@ -24,10 +25,7 @@ import { createYaml } from '@shell/utils/create-yaml';
 import {
   clone, diff, set, get, isEmpty
 } from '@shell/utils/object';
-import { allHash } from '@shell/utils/promise';
-import { sortBy } from '@shell/utils/sort';
 
-import { compare, sortable } from '@shell/utils/version';
 import { isHarvesterSatisfiesVersion } from '@shell/utils/cluster';
 import { Banner } from '@components/Banner';
 import CruResource, { CONTEXT_HOOK_EDIT_YAML } from '@shell/components/CruResource';
@@ -42,7 +40,6 @@ import Tabbed from '@shell/components/Tabbed';
 import { canViewClusterMembershipEditor } from '@shell/components/form/Members/ClusterMembershipEditor';
 import semver from 'semver';
 
-import { SETTING } from '@shell/config/settings';
 import { base64Encode } from '@shell/utils/crypto';
 import { CAPI as CAPI_ANNOTATIONS, CLUSTER_BADGE } from '@shell/config/labels-annotations';
 import MachinePool from '@shell/edit/provisioning.cattle.io.cluster/tabs/MachinePool';
@@ -112,7 +109,7 @@ export default {
     ClusterAppearance
   },
 
-  mixins: [CreateEditView, FormValidation],
+  mixins: [CreateEditView, FormValidation, ClusterManagement],
 
   props: {
     mode: {
@@ -212,7 +209,20 @@ export default {
       userChartValues:                 {},
       userChartValuesTemp:             {},
       addonsRev:                       0,
-      fvFormRuleSets:                  [{
+      loadedOnce:                      false,
+      lastIdx:                         0,
+
+      credential: null,
+
+      membershipUpdate:            {},
+      showDeprecatedPatchVersions: false,
+
+      showCustomRegistryInput: false,
+
+      userChartValuesTemp:     {},
+      addonsRev:               0,
+      clusterIsAlreadyCreated: !!this.value.id,
+      fvFormRuleSets:          [{
         path: 'metadata.name', rules: ['subDomain'], translationKey: 'nameNsDescription.name.label'
       }],
       harvesterVersionRange: {},
@@ -224,6 +234,7 @@ export default {
       machinePoolValidation: {}, // map of validation states for each machine pool
       machinePoolErrors:     {},
       allNamespaces:         [],
+      initialCloudProvider:  this.value?.agentConfig?.['cloud-provider-name'] || '',
       extensionTabs:         getApplicableExtensionEnhancements(this, ExtensionPoint.TAB, TabLocation.CLUSTER_CREATE_RKE2, this.$route, this),
     };
   },
@@ -254,8 +265,19 @@ export default {
       return this.value.spec.rkeConfig.machineGlobalConfig;
     },
 
-    agentConfig() {
-      return this.value.agentConfig;
+    /**
+     * Kube Version
+     */
+    selectedVersion() {
+      const str = this.value.spec.kubernetesVersion;
+
+      if ( !str ) {
+        return;
+      }
+
+      const out = findBy(this.versionOptions, 'value', str);
+
+      return out;
     },
 
     unsupportedSelectorConfig() {
@@ -336,17 +358,26 @@ export default {
     },
 
     /**
-     * Kube Version
+     * The chart names of the addons applicable to the current kube version and selected cloud provider
      */
-    selectedVersion() {
-      const str = this.value.spec.kubernetesVersion;
+    addonNames() {
+      const names = [];
+      const cni = this.serverConfig.cni;
 
       if (!str) {
         return;
       }
+      if (typeof cni === 'string') {
+        names.push(...cni.split(',').map((x) => `rke2-${ x }`));
+      } else if (Array.isArray(cni)) {
+        names.push(...cni.map((x) => `rke2-${ x }`));
+      }
 
-      const out = findBy(this.versionOptions, 'value', str);
-
+      if (this.showCloudProvider) { // Shouldn't be removed such that changes to it will re-trigger this watch
+        if ( this.agentConfig['cloud-provider-name'] === 'rancher-vsphere' ) {
+          names.push('rancher-vsphere-cpi', 'rancher-vsphere-csi');
+        }
+      }
       // Adding the option 'none' to Container Network select (used in Basics component)
       // https://github.com/rancher/dashboard/issues/10338
       // there's an update loop on refresh that might include 'none'
@@ -358,8 +389,14 @@ export default {
       return out;
     },
 
-    haveArgInfo() {
-      return Boolean(this.selectedVersion?.serverArgs && this.selectedVersion?.agentArgs);
+    agentConfig() {
+      return this.value.agentConfig;
+      //   if ( this.agentConfig['cloud-provider-name'] === HARVESTER ) {
+      //     names.push(HARVESTER_CLOUD_PROVIDER);
+      //   }
+      // }
+
+      // return names;
     },
 
     serverArgs() {
@@ -368,15 +405,6 @@ export default {
 
     agentArgs() {
       return this.selectedVersion?.agentArgs || {};
-    },
-
-    /**
-     * The addons (kube charts) applicable for the selected kube version
-     *
-     * { [chartName:string]: { repo: string, version: string } }
-     */
-    chartVersions() {
-      return this.selectedVersion?.charts || {};
     },
 
     needCredential() {
@@ -528,8 +556,11 @@ export default {
       return out;
     },
 
-    showCni() {
-      return !!this.serverArgs.cni;
+    /**
+     * Is a namespace needed? Only supported for providers from extensions, otherwise default is no
+     */
+    needsNamespace() {
+      return this.extensionProvider ? !!this.extensionProvider.namespaced : false;
     },
 
     showCloudProvider() {
@@ -804,6 +835,7 @@ export default {
         set(this.agentConfig, 'cloud-provider-name', undefined);
       }
     },
+
   },
 
   created() {
@@ -1061,23 +1093,75 @@ export default {
       this.machinePools = out;
     },
 
-    async addMachinePool(idx) {
-      // this.machineConfigSchema is the schema for the Machine Pool's machine configuration for the given provider
-      if (!this.machineConfigSchema) {
+    machineConfigSchema() {
+      let schema;
+
+      if ( !this.hasMachinePools ) {
+        return null;
+      } else if (this.isElementalCluster) {
+        schema = ELEMENTAL_SCHEMA_IDS.MACHINE_INV_SELECTOR_TEMPLATES;
+      } else {
+        schema = `${ CAPI.MACHINE_CONFIG_GROUP }.${ this.provider }config`;
+      }
+
+      // If this is an extension provider then the extension can provide the schema
+      const extensionSchema = this.extensionProvider?.machineConfigSchema;
+
+      if (extensionSchema) {
+        // machineConfigSchema can either be the schema name (string) or the schema itself (object)
+        if (typeof extensionSchema === 'object') {
+          return extensionSchema;
+        }
+
+        // Name of schema to use
+        schema = extensionSchema;
+      }
+
+      return this.$store.getters['management/schemaFor'](schema);
+    },
+
+    /**
+     * Extension provider where being provisioned by an extension
+     */
+    extensionProvider() {
+      console.log(`this.provider: ${ this.provider }`);
+      const extClass = this.$plugin.getDynamic('provisioner', this.provider);
+
+      if (extClass) {
+        return new extClass({
+          dispatch: this.$store.dispatch,
+          getters:  this.$store.getters,
+          axios:    this.$store.$axios,
+          $plugin:  this.$store.app.$plugin,
+          $t:       this.t,
+          isCreate: this.isCreate
+        });
+      }
+
+      return undefined;
+    },
+
+    cleanAgentConfiguration(model, key) {
+      if (!model || !model[key]) {
         return;
       }
 
-      const numCurrentPools = this.machinePools.length || 0;
+      const v = model[key];
 
-      let config;
+      if (Array.isArray(v) && v.length === 0) {
+        delete model[key];
+      } else if (v && typeof v === 'object') {
+        Object.keys(v).forEach((k) => {
+          // delete these auxiliary props used in podAffinity and nodeAffinity that shouldn't be sent to the server
+          if (k === '_namespaceOption' || k === '_namespaces' || k === '_anti' || k === '_id') {
+            delete v[k];
+          }
 
-      if (this.extensionProvider?.createMachinePoolMachineConfig) {
-        config = await this.extensionProvider.createMachinePoolMachineConfig(idx, this.machinePools, this.value);
-      } else {
-        // Default - use the schema
-        config = await this.$store.dispatch('management/createPopulated', {
-          type:     this.machineConfigSchema.id,
-          metadata: { namespace: DEFAULT_WORKSPACE }
+          // prevent cleanup of "namespaceSelector" when an empty object because it represents all namespaces in pod/node affinity
+          // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#podaffinityterm-v1-core
+          if (k !== 'namespaceSelector') {
+            this.cleanAgentConfiguration(v, k);
+          }
         });
 
         // If there is no specific model, the applyDefaults does nothing by default
@@ -1123,8 +1207,22 @@ export default {
       this.$nextTick(() => {
         if (this.$refs.pools?.select) {
           this.$refs.pools.select(name);
+        // if (Object.keys(v).length === 0) {
+        //   delete model[key];
+        // }
         }
       });
+    },
+
+    /**
+     * set instanceNameLimit to 15 to all pool machine if truncateHostnames checkbox is clicked
+     */
+    truncateName(neu) {
+      if (neu) {
+        this.value.defaultHostnameLengthLimit = NETBIOS_TRUNCATION_LENGTH;
+      } else {
+        this.value.removeDefaultHostnameLengthLimit();
+      }
     },
 
     removeMachinePool(idx) {
@@ -1718,24 +1816,62 @@ export default {
         });
       }
 
-      const sorted = sortBy(out, 'sort:desc');
+      const numCurrentPools = this.machinePools.length || 0;
 
-      const mostRecentPatchVersions = this.getMostRecentPatchVersions(sorted);
+      let config;
 
-      const sortedWithDeprecatedLabel = sorted.map((optionData) => {
-        const majorMinor = `${ semver.major(optionData.value) }.${ semver.minor(optionData.value) }`;
+      if (this.extensionProvider?.createMachinePoolMachineConfig) {
+        config = await this.extensionProvider.createMachinePoolMachineConfig(idx, this.machinePools, this.value);
+      } else {
+        // Default - use the schema
+        config = await this.$store.dispatch('management/createPopulated', {
+          type:     this.machineConfigSchema.id,
+          metadata: { namespace: DEFAULT_WORKSPACE }
+        });
 
-        if (mostRecentPatchVersions[majorMinor] === optionData.value) {
-          return optionData;
+        // If there is no specific model, the applyDefaults does nothing by default
+        config.applyDefaults(idx, this.machinePools);
+      }
+
+      const name = `pool${ ++this.lastIdx }`;
+      const pool = {
+        id:     name,
+        config,
+        remove: false,
+        create: true,
+        update: false,
+        uid:    name,
+        pool:   {
+          name,
+          etcdRole:             numCurrentPools === 0,
+          controlPlaneRole:     numCurrentPools === 0,
+          workerRole:           true,
+          hostnamePrefix:       '',
+          labels:               {},
+          quantity:             1,
+          unhealthyNodeTimeout: '0m',
+          machineConfigRef:     {
+            kind: this.machineConfigSchema.attributes?.kind,
+            name: null,
+          },
+        },
+      };
+
+      if (this.provider === 'vmwarevsphere') {
+        pool.pool.machineOS = 'linux';
+      }
+
+      if (this.isElementalCluster) {
+        pool.pool.machineConfigRef.apiVersion = `${ this.machineConfigSchema.attributes.group }/${ this.machineConfigSchema.attributes.version }`;
+      }
+
+      this.machinePools.push(pool);
+
+      this.$nextTick(() => {
+        if ( this.$refs.pools?.select ) {
+          this.$refs.pools.select(name);
         }
-
-        return {
-          ...optionData,
-          label: `${ optionData.label } ${ this.t('cluster.kubernetesVersion.deprecated') }`
-        };
       });
-
-      return sortedWithDeprecatedLabel;
     },
 
     getMostRecentPatchVersions(sortedVersions) {
@@ -1777,19 +1913,6 @@ export default {
       });
 
       return filteredVersions;
-    },
-
-    generateYaml() {
-      const resource = this.value;
-      const inStore = this.$store.getters['currentStore'](resource);
-      const schemas = this.$store.getters[`${ inStore }/all`](SCHEMA);
-      const clonedResource = clone(resource);
-
-      this.applyChartValues(clonedResource.spec.rkeConfig);
-
-      const out = createYaml(schemas, resource.type, clonedResource);
-
-      return out;
     },
 
     applyChartValues(rkeConfig) {
@@ -2018,8 +2141,125 @@ export default {
           }
         }
       }
-    }
-  }
+
+      if (!this.value.metadata.name && this.agentConfig['cloud-provider-name'] === HARVESTER) {
+        this.errors.push(this.t('validation.required', { key: this.t('cluster.name.label') }, true));
+      }
+
+      if (this.errors.length) {
+        btnCb(false);
+
+        return;
+      }
+
+      try {
+        const clusterId = get(this.credential, 'decodedData.clusterId') || '';
+
+        this.applyChartValues(this.value.spec.rkeConfig);
+
+        const isUpgrade = this.isEdit && this.liveValue?.spec?.kubernetesVersion !== this.value?.spec?.kubernetesVersion;
+
+        if (this.agentConfig['cloud-provider-name'] === HARVESTER && clusterId && (this.isCreate || isUpgrade)) {
+          const namespace = this.machinePools?.[0]?.config?.vmNamespace;
+
+          const res = await this.$store.dispatch('management/request', {
+            url:    `/k8s/clusters/${ clusterId }/v1/harvester/kubeconfig`,
+            method: 'POST',
+            data:   {
+              csiClusterRoleName: 'harvesterhci.io:csi-driver',
+              clusterRoleName:    'harvesterhci.io:cloudprovider',
+              namespace,
+              serviceAccountName: this.value.metadata.name,
+            },
+          });
+
+          const kubeconfig = res.data;
+
+          const harvesterKubeconfigSecret = await this.createKubeconfigSecret(kubeconfig);
+
+          set(this.agentConfig, 'cloud-provider-config', `secret://fleet-default:${ harvesterKubeconfigSecret?.metadata?.name }`);
+
+          if (this.isCreate) {
+            set(this.chartValues, `${ HARVESTER_CLOUD_PROVIDER }.global.cattle.clusterName`, this.value.metadata.name);
+          }
+
+          set(this.chartValues, `${ HARVESTER_CLOUD_PROVIDER }.cloudConfigPath`, '/var/lib/rancher/rke2/etc/config-files/cloud-provider-config');
+        }
+      } catch (err) {
+        this.errors.push(err);
+
+        btnCb(false);
+
+        return;
+      }
+
+      // Remove null profile on machineGlobalConfig - https://github.com/rancher/dashboard/issues/8480
+      if (this.value.spec?.rkeConfig?.machineGlobalConfig?.profile === null) {
+        delete this.value.spec.rkeConfig.machineGlobalConfig.profile;
+      }
+
+      // Store the current data for fleet and cluster agent so that we can re-apply it later if the save fails
+      // The cleanup occurs before save with agentConfigurationCleanup()
+      const clusterAgentDeploymentCustomization = this.value.spec[CLUSTER_AGENT_CUSTOMIZATION] ? JSON.parse(JSON.stringify(this.value.spec[CLUSTER_AGENT_CUSTOMIZATION])) : null;
+      const fleetAgentDeploymentCustomization = this.value.spec[FLEET_AGENT_CUSTOMIZATION] ? JSON.parse(JSON.stringify(this.value.spec[FLEET_AGENT_CUSTOMIZATION])) : null;
+
+      await this.save(btnCb);
+
+      // comes from createEditView mixin
+      // if there are any errors saving, restore the agent config data
+      if (this.errors?.length) {
+        // Ensure the agent configuration is set back to the values before we changed (cleaned) it
+        set(this.value.spec, CLUSTER_AGENT_CUSTOMIZATION, clusterAgentDeploymentCustomization);
+        set(this.value.spec, FLEET_AGENT_CUSTOMIZATION, fleetAgentDeploymentCustomization);
+      }
+    },
+
+    // TODO review this func. called from create-edit-view
+    async actuallySave(url) {
+      if (this.extensionProvider?.saveCluster) {
+        return await this.extensionProvider?.saveCluster(this.value, this.schema);
+      }
+
+      if ( this.isCreate ) {
+        url = url || this.schema.linkFor('collection');
+        const res = await this.value.save({ url });
+
+        if (res) {
+          Object.assign(this.value, res);
+        }
+      } else {
+        await this.value.save();
+      }
+    },
+
+    // Set busy before save and clear after save
+    async saveOverride(btnCb) {
+      this.$set(this, 'busy', true);
+
+      // If the provider is from an extension, let it do the provision step
+      if (this.extensionProvider?.provision) {
+        const errors = await this.extensionProvider?.provision(this.value, this.machinePools);
+        const okay = (errors || []).length === 0;
+
+        this.errors = errors;
+        this.$set(this, 'busy', false);
+
+        btnCb(okay);
+
+        if (okay) {
+          // If saved okay, go to the done route
+          return this.done();
+        }
+      }
+
+      // Default save
+      return this._doSaveOverride((done) => {
+        this.$set(this, 'busy', false);
+
+        return btnCb(done);
+      });
+    },
+  },
 };
 </script>
 

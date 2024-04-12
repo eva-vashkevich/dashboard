@@ -271,25 +271,24 @@ export default class ProvCluster extends SteveModel {
   get isImported() {
     // As of Rancher v2.6.7, this returns false for imported K3s clusters,
     // in which this.provisioner is `k3s`.
-
     const isImportedProvisioner = this.provisioner === 'imported';
-    const isImportedSpecialCases = this.mgmt?.providerForEmberParam === 'import' ||
-      // when imported cluster is GKE
-      !!this.mgmt?.spec?.gkeConfig?.imported ||
-      // or AKS
-      !!this.mgmt?.spec?.aksConfig?.imported ||
-      // or EKS
-      !!this.mgmt?.spec?.eksConfig?.imported;
+    const isImportedK3s = !this.isRke2 && !this.mgmt?.machineProvider && (this.mgmt?.providerForEmberParam === 'import' || this.mgmt?.spec?.gkeConfig?.imported);
 
-    return !this.isLocal && (isImportedProvisioner || (!this.isRke2 && !this.mgmt?.machineProvider && isImportedSpecialCases));
+    console.log(`isImportedProvisioner: ${ isImportedProvisioner } isImportedK3s: ${ isImportedK3s }`);
+
+    return isImportedProvisioner || isImportedK3s;
   }
 
   get isCustom() {
     if ( this.isRke2 ) {
+      console.log('custom RKE2');
+
       return !(this.spec?.rkeConfig?.machinePools?.length);
     }
 
     if ( this.isRke1 ) {
+      console.log('custom RKE1');
+
       return !this.pools?.length;
     }
 
