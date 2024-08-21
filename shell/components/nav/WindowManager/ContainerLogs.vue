@@ -8,6 +8,7 @@ import LabeledSelect from '@shell/components/form/LabeledSelect';
 import { Checkbox } from '@components/Form/Checkbox';
 import AsyncButton from '@shell/components/AsyncButton';
 import Select from '@shell/components/form/Select';
+import VirtualScroller from 'primevue/virtualscroller';
 import VirtualList from 'vue3-virtual-scroll-list';
 import LogItem from '@shell/components/LogItem';
 
@@ -89,6 +90,8 @@ export default {
     Checkbox,
     AsyncButton,
     VirtualList,
+    VirtualScroller,
+    LogItem
   },
 
   props: {
@@ -427,9 +430,10 @@ export default {
 
     updateFollowing() {
       const virtualList = this.$refs.virtualList;
+      console.log(virtualList)
 
       if (virtualList) {
-        this.isFollowing = virtualList.getScrollSize() - virtualList.getClientSize() === virtualList.getOffset();
+        //this.isFollowing = virtualList.getScrollSize() - virtualList.getClientSize() === virtualList.getOffset();
       }
     },
 
@@ -501,9 +505,10 @@ export default {
 
     follow() {
       const virtualList = this.$refs.virtualList;
+      console.log(virtualList)
 
       if (virtualList) {
-        virtualList.$el.scrollTop = virtualList.getScrollSize();
+        //virtualList.$el.scrollTop = virtualList.getScrollSize();
       }
     },
 
@@ -605,7 +610,7 @@ export default {
         </div>
 
         <div class="log-action log-action-group ml-5">
-          <v-dropdown
+          <VDropdown
             trigger="click"
             placement="top"
           >
@@ -641,7 +646,7 @@ export default {
                 </div>
               </div>
             </template>
-          </v-dropdown>
+          </VDropdown>
         </div>
 
         <div class="log-action log-action-group ml-5">
@@ -667,7 +672,21 @@ export default {
         ref="body"
         :class="{'logs-container': true, 'open': isOpen, 'closed': !isOpen, 'show-times': timestamps && filtered.length, 'wrap-lines': wrap}"
       >
-        <VirtualList
+        <VirtualScroller
+            v-show="filtered.length"
+            ref="virtualList"
+            orientation="vertical"
+            :items="filtered"
+            :step="10"
+            :numToleratedItems="200"
+        >
+            <template v-slot:item="{ item, options }">
+                <div :class="['flex items-center p-2', { 'bg-surface-100 dark:bg-surface-700': options.odd }]" >
+                    <LogItem :source="item" />
+                </div>
+            </template>
+        </VirtualScroller>
+        <!-- <VirtualList
           v-show="filtered.length"
           ref="virtualList"
           data-key="id"
@@ -677,7 +696,7 @@ export default {
           class="virtual-list"
           :keeps="200"
           @scroll="updateFollowing"
-        />
+        /> -->
         <template v-if="!filtered.length">
           <div v-if="search">
             <span class="msg text-muted">{{ t('wm.containerLogs.noMatch') }}</span>
