@@ -428,9 +428,10 @@ export default {
       }
     },
 
-    updateFollowing() {
+    updateFollowing(event) {
+        //console.log(event)
       const virtualList = this.$refs.virtualList;
-      console.log(virtualList)
+      //console.log(virtualList.getRenderedRange())
 
       if (virtualList) {
         //this.isFollowing = virtualList.getScrollSize() - virtualList.getClientSize() === virtualList.getOffset();
@@ -505,11 +506,14 @@ export default {
 
     follow() {
       const virtualList = this.$refs.virtualList;
-      console.log(virtualList)
+      //console.log(virtualList)
 
       if (virtualList) {
         //virtualList.$el.scrollTop = virtualList.getScrollSize();
       }
+    },
+    brr(e){
+        console.log(e)
     },
 
     toggleWrap(on) {
@@ -671,7 +675,7 @@ export default {
       <div
         ref="body"
         :class="{'logs-container': true, 'open': isOpen, 'closed': !isOpen, 'show-times': timestamps && filtered.length, 'wrap-lines': wrap}"
-      >
+      > <!-- :class="['flex items-center p-2', { 'bg-surface-100 dark:bg-surface-700': options.odd }]" -->
         <VirtualScroller
             v-show="filtered.length"
             ref="virtualList"
@@ -679,12 +683,15 @@ export default {
             :items="filtered"
             :step="10"
             :numToleratedItems="200"
+            class="virtual-list"
+            @scroll="updateFollowing"
         >
             <template v-slot:item="{ item, options }">
-                <div :class="['flex items-center p-2', { 'bg-surface-100 dark:bg-surface-700': options.odd }]" >
+                <div  > 
                     <LogItem :source="item" />
                 </div>
             </template>
+            
         </VirtualScroller>
         <!-- <VirtualList
           v-show="filtered.length"
