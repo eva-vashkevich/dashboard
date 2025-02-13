@@ -7,16 +7,16 @@ import NameNsDescription from '@/cypress/e2e/po/components/name-ns-description.p
  * Edit page for imported cluster
  */
 export default class ClusterManagerEditImportedPagePo extends PagePo {
-  private static createPath(clusterId: string, clusterName: string) {
-    return `/c/${ clusterId }/manager/provisioning.cattle.io.cluster/fleet-default/${ clusterName }`;
+  private static createPath(clusterId: string) {
+    return `/c/${ clusterId }/manager/provisioning.cattle.io.cluster/fleet-default`;
   }
 
   static goTo(clusterId: string, clusterName: string ): Cypress.Chainable<Cypress.AUTWindow> {
     return super.goTo(ClusterManagerEditImportedPagePo.createPath(clusterId, clusterName));
   }
 
-  constructor(clusterId = '_', clusterName: string) {
-    super(ClusterManagerEditImportedPagePo.createPath(clusterId, clusterName));
+  constructor(clusterId = '_') {
+    super(ClusterManagerEditImportedPagePo.createPath(clusterId));
   }
 
   nameNsDescription() {
