@@ -590,7 +590,6 @@ describe('Cluster Manager', { testIsolation: 'off', tags: ['@manager', '@adminUs
 
   describe('Imported', { tags: ['@jenkins', '@importedCluster'] }, () => {
     const importClusterPage = new ClusterManagerImportGenericPagePo();
-    const editImportedClusterPage = new ClusterManagerEditImportedPagePo('_');
     const fqdn = 'fqdn';
     const cacert = 'cacert';
 
@@ -604,7 +603,7 @@ describe('Cluster Manager', { testIsolation: 'off', tags: ['@manager', '@adminUs
 
         importClusterPage.waitForPage('mode=import');
         importClusterPage.selectGeneric(0);
-        importClusterPage.name().set(importGenericName);
+        importClusterPage.nameNsDescription().name().set(importGenericName);
         importClusterPage.create();
 
         cy.wait('@importRequest').then((intercept) => {
@@ -653,7 +652,7 @@ describe('Cluster Manager', { testIsolation: 'off', tags: ['@manager', '@adminUs
         cy.intercept('GET', '/v1-rke2-release/releases').as('getRke2Releases');
         clusterList.goTo();
         clusterList.list().actionMenu(importGenericName).getMenuItem('Edit Config').click();
-        editImportedClusterPage.waitForPage();
+        editImportedClusterPage.waitForPage('mode=edit');
 
         editImportedClusterPage.nameNsDescription().name().value().should('eq', importGenericName );
         // Issue #10432: Edit Cluster screen falsely gives impression imported cluster's name and description can be edited
@@ -671,7 +670,7 @@ describe('Cluster Manager', { testIsolation: 'off', tags: ['@manager', '@adminUs
 
         clusterList.list().actionMenu(importGenericName).getMenuItem('Edit Config').click();
 
-        editImportedClusterPage.waitForPage();
+        editImportedClusterPage.waitForPage('mode=edit');
         editImportedClusterPage.ace().fqdn().value().should('eq', fqdn );
         editImportedClusterPage.ace().caCerts().value().should('eq', cacert );
       });
