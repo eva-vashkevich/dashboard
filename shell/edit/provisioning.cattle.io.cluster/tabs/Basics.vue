@@ -12,7 +12,7 @@ import { LEGACY } from '@shell/store/features';
 import semver from 'semver';
 import Ingress from '@shell/edit/provisioning.cattle.io.cluster/tabs/Ingress';
 import {
-  HARVESTER, RKE2_INGRESS_NGINX, RKE2_TRAEFIK, INGRESS_CONTROLLER, INGRESS_NGINX
+  HARVESTER, RKE2_INGRESS_NGINX, RKE2_TRAEFIK, INGRESS_CONTROLLER, INGRESS_NGINX, INGRESS_NONE
 } from '@shell/edit/provisioning.cattle.io.cluster/shared';
 
 export default {
@@ -173,7 +173,17 @@ export default {
     },
     ingressController: {
       get() {
-        return this.serverConfig && this.serverConfig[INGRESS_CONTROLLER] ? this.serverConfig[INGRESS_CONTROLLER] : INGRESS_NGINX ;
+        if (this.serverConfig) {
+          if (this.serverConfig[INGRESS_CONTROLLER]) {
+            return this.serverConfig[INGRESS_CONTROLLER];
+          } else {
+            if (this.serverConfig.disable && this.serverConfig.disable.includes(RKE2_INGRESS_NGINX)) {
+              return INGRESS_NONE;
+            }
+          }
+        }
+
+        return INGRESS_NGINX;
       },
 
       set(neu) {

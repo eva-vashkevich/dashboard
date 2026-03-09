@@ -48,7 +48,7 @@ const isEdit = computed(() => mode === _EDIT);
 const showTraefikBanner = ref<Boolean>(false);
 const traefikMerged = ref(initYamlEditor(traefikChart));
 const nginxMerged = ref(initYamlEditor(nginxChart));
-const showConfig = ref<Boolean>(!!versionInfo[traefikChart] || !!versionInfo[nginxChart]);
+const showConfig = computed(() => !!versionInfo[traefikChart] || !!versionInfo[nginxChart]);
 
 const ingressSelection = computed(() => {
   if (Array.isArray(value) ) {
@@ -90,7 +90,13 @@ const ingressEnabled = computed({
     if (!val) {
       emit('update:value', INGRESS_NONE);
     } else {
-      emit('update:value', TRAEFIK);
+      if (traefikSupported) {
+        emit('update:value', TRAEFIK);
+      } else if (nginxSupported) {
+        emit('update:value', INGRESS_NGINX);
+      } else {
+        emit('update:value', INGRESS_NONE);
+      }
     }
   }
 });
