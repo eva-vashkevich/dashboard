@@ -768,7 +768,6 @@ export const PAGINATION_SETTINGS_STORE_DEFAULTS: PaginationSettingsStores = {
           { resource: MANAGEMENT.CLUSTER, context: ['side-bar'] },
           { resource: CATALOG.APP, context: ['branding'] },
           SECRET,
-          CAPI.MACHINE_SET,
           EXT.TOKEN
         ],
         generic: false,
