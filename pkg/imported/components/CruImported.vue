@@ -561,7 +561,7 @@ export default defineComponent({
         />
       </Accordion>
       <Accordion
-        v-if="!isCreate & !isRKE1"
+        v-if="!isCreate && !isRKE1 && (!isLocal || enableNetworkPolicySupported)"
         class="mb-20 accordion"
         title-key="imported.accordions.networking"
         data-testid="network-accordion"
@@ -582,8 +582,9 @@ export default defineComponent({
             :label="t('cluster.rke2.enableNetworkPolicy.label')"
           />
         </div>
-        <h3 v-t="'cluster.tabs.ace'" />
+        <h3>{{ t('cluster.tabs.ace') }}</h3>
         <ACE
+          v-if="!isLocal"
           v-model:value="normanCluster.localClusterAuthEndpoint"
           :mode="mode"
           @local-cluster-auth-endpoint-changed="enableLocalClusterAuthEndpoint"
