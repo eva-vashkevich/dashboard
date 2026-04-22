@@ -50,7 +50,7 @@ describe('cruImported component', () => {
   describe('networking tab visibility', () => {
     it('should show the networking tab when not in create mode, not RKE1, and not local', () => {
       const wrapper = shallowMount(CruImported, {
-        props: {
+        propsData: {
           mode:  _EDIT,
           value: {
             id:                'cluster-id',
@@ -69,7 +69,7 @@ describe('cruImported component', () => {
 
     it('should hide the networking tab in create mode', () => {
       const wrapper = shallowMount(CruImported, {
-        props: {
+        propsData: {
           mode:  _CREATE,
           value: {
             isRke1:  false,
@@ -84,9 +84,51 @@ describe('cruImported component', () => {
       expect(networkAccordion.exists()).toBe(false);
     });
 
+    it('should show the networking tab when not in create mode, not RKE1, is local, and enableNetworkPolicySupported is true', () => {
+      const wrapper = shallowMount(CruImported, {
+        propsData: {
+          mode:  _EDIT,
+          value: {
+            id:                'cluster-id',
+            isRke1:            false,
+            isLocal:           true,
+            isK3s:             false,
+            isRke2:            false,
+            findNormanCluster: jest.fn().mockResolvedValue({})
+          }
+        },
+        ...defaultSetup
+      });
+
+      const networkAccordion = wrapper.find('[data-testid="network-accordion"]');
+
+      expect(networkAccordion.exists()).toBe(true);
+    });
+
+    it('should hide the networking tab when not in create mode, not RKE1, is local, and enableNetworkPolicySupported is false', () => {
+      const wrapper = shallowMount(CruImported, {
+        propsData: {
+          mode:  _EDIT,
+          value: {
+            id:                'cluster-id',
+            isRke1:            false,
+            isLocal:           true,
+            isK3s:             true,
+            isRke2:            false,
+            findNormanCluster: jest.fn().mockResolvedValue({})
+          }
+        },
+        ...defaultSetup
+      });
+
+      const networkAccordion = wrapper.find('[data-testid="network-accordion"]');
+
+      expect(networkAccordion.exists()).toBe(false);
+    });
+
     it('should not display the ACE component if cluster is local', () => {
       const wrapper = shallowMount(CruImported, {
-        props: {
+        propsData: {
           mode:  _EDIT,
           value: {
             id:                'cluster-id',
@@ -104,7 +146,7 @@ describe('cruImported component', () => {
     });
     it('should display the ACE component if cluster is not local', () => {
       const wrapper = shallowMount(CruImported, {
-        props: {
+        propsData: {
           mode:  _EDIT,
           value: {
             id:                'cluster-id',
