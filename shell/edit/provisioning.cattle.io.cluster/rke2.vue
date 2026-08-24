@@ -9,6 +9,7 @@ import { useMachinePools, syncMachineConfigWithLatest } from '@shell/composables
 import { useRegistryConfig } from '@shell/composables/useRegistryConfig';
 import { useChartAddons } from '@shell/composables/useChartAddons';
 import { useCloudProviderConfig } from '@shell/composables/useCloudProviderConfig';
+import { useClusterMembership, saveRoleBindings } from '@shell/composables/useClusterMembership';
 import { normalizeName } from '@shell/utils/kube';
 import AccountAccess from '@shell/components/google/AccountAccess.vue';
 
@@ -38,8 +39,6 @@ import Loading from '@shell/components/Loading';
 import NameNsDescription from '@shell/components/form/NameNsDescription';
 import Tab from '@shell/components/Tabbed/Tab';
 import Tabbed from '@shell/components/Tabbed';
-
-import { canViewClusterMembershipEditor } from '@shell/components/form/Members/ClusterMembershipEditor';
 
 import { CLOUD_CREDENTIAL_OVERRIDE } from '@shell/models/nodedriver';
 import { base64Encode } from '@shell/utils/crypto';
@@ -140,6 +139,7 @@ export default {
       ...useRegistryConfig(props),
       ...useChartAddons(),
       ...useCloudProviderConfig({ chartVersions: kubernetesVersions.chartVersions }),
+      ...useClusterMembership(),
     };
   },
 
@@ -233,7 +233,6 @@ export default {
       credential:                null,
       initialMachinePoolsValues: {},
       s3Backup:                  false,
-      membershipUpdate:          {},
       fvFormRuleSets:            [{
         path: 'metadata.name', rules: ['subDomain'], translationKey: 'nameNsDescription.name.label'
       }],
@@ -554,10 +553,6 @@ export default {
       }
 
       return out;
-    },
-
-    canManageMembers() {
-      return canViewClusterMembershipEditor(this.$store);
     },
 
     isHarvesterDriver() {
@@ -1321,9 +1316,7 @@ export default {
     async saveRoleBindings() {
       await this.value.waitForMgmt();
 
-      if (this.membershipUpdate.save) {
-        await this.membershipUpdate.save(this.value.mgmt.id);
-      }
+      return saveRoleBindings(this.membershipUpdate, this.value.mgmt.id);
     },
 
     async showIpv6Warning(hookContext) {
@@ -1716,10 +1709,6 @@ export default {
       const addonVersion = this.addonVersions.find((av) => av.name === name);
 
       return addonVersion ? `${ name }-${ addonVersion.version }` : name;
-    },
-
-    onMembershipUpdate(update) {
-      this['membershipUpdate'] = update;
     },
 
     generateYaml() {
