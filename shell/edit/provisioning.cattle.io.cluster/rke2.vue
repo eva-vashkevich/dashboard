@@ -8,7 +8,7 @@ import { useKubernetesVersions, getDefaultVersion } from '@shell/composables/use
 import { useMachinePools, syncMachineConfigWithLatest } from '@shell/composables/useMachinePools';
 import { useRegistryConfig } from '@shell/composables/useRegistryConfig';
 import { useChartAddons } from '@shell/composables/useChartAddons';
-import { useCloudProviderConfig } from '@shell/composables/useCloudProviderConfig';
+import { useCloudProviderConfig, setHarvesterChartValues, setHarvesterDefaultCloudProvider, fetchHarvesterVersionRange } from '@shell/composables/useCloudProviderConfig';
 import { useClusterMembership, saveRoleBindings } from '@shell/composables/useClusterMembership';
 import { normalizeName } from '@shell/utils/kube';
 import AccountAccess from '@shell/components/google/AccountAccess.vue';
@@ -19,15 +19,13 @@ import {
   NORMAN,
   SCHEMA,
   DEFAULT_WORKSPACE,
-  SECRET,
-  HCI,
 } from '@shell/config/types';
 import { _CREATE, _EDIT, _VIEW } from '@shell/config/query-params';
 
 import { clear } from '@shell/utils/array';
 import { createYaml } from '@shell/utils/create-yaml';
 import {
-  clone, diff, set, get, isEmpty, mergeWithReplace
+  clone, diff, set, isEmpty, mergeWithReplace
 } from '@shell/utils/object';
 import { labelForAddon, initSchedulingCustomization, addonConfigPreserve } from '@shell/utils/cluster';
 import { AGENT_CONFIGURATION_TYPES } from '@shell/config/settings';
@@ -41,8 +39,7 @@ import Tab from '@shell/components/Tabbed/Tab';
 import Tabbed from '@shell/components/Tabbed';
 
 import { CLOUD_CREDENTIAL_OVERRIDE } from '@shell/models/nodedriver';
-import { base64Encode } from '@shell/utils/crypto';
-import { CAPI as CAPI_ANNOTATIONS, CLUSTER_BADGE } from '@shell/config/labels-annotations';
+import { CLUSTER_BADGE } from '@shell/config/labels-annotations';
 import AgentEnv from '@shell/edit/provisioning.cattle.io.cluster/AgentEnv';
 import Labels from '@shell/edit/provisioning.cattle.io.cluster/Labels';
 import MachinePool from '@shell/edit/provisioning.cattle.io.cluster/tabs/MachinePool';
@@ -59,7 +56,6 @@ import Upgrade from '@shell/edit/provisioning.cattle.io.cluster/tabs/upgrade';
 import Registries from '@shell/edit/provisioning.cattle.io.cluster/tabs/registries';
 import AddOnConfig from '@shell/edit/provisioning.cattle.io.cluster/tabs/AddOnConfig';
 import Advanced from '@shell/edit/provisioning.cattle.io.cluster/tabs/Advanced';
-import { DEFAULT_COMMON_BASE_PATH, DEFAULT_SUBDIRS } from '@shell/edit/provisioning.cattle.io.cluster/tabs/DirectoryConfig';
 import ClusterAppearance from '@shell/components/form/ClusterAppearance';
 import AddOnAdditionalManifest from '@shell/edit/provisioning.cattle.io.cluster/tabs/AddOnAdditionalManifest';
 import VsphereUtils, { VMWARE_VSPHERE } from '@shell/utils/v-sphere';
@@ -1517,73 +1513,20 @@ export default {
     },
 
     async setHarvesterChartValues() {
-      const isHarvester = this.agentConfig?.['cloud-provider-name'] === HARVESTER;
-
-      if (!isHarvester) {
-        return;
-      }
-      try {
-        const clusterId = get(this.credential, 'decodedData.clusterId') || '';
-        const isUpgrade = this.isEdit && this.liveValue?.spec?.kubernetesVersion !== this.value?.spec?.kubernetesVersion;
-
-        if (!this.value?.metadata?.name) {
-          const err = this.t('cluster.harvester.kubeconfigSecret.nameRequired');
-
-          throw new Error(err);
-        }
-
-        if (clusterId && (this.isCreate || isUpgrade)) {
-          const namespace = this.machinePools?.[0]?.config?.vmNamespace;
-
-          const res = await this.$store.dispatch('management/request', {
-            url:    `/k8s/clusters/${ clusterId }/v1/harvester/kubeconfig`,
-            method: 'POST',
-            data:   {
-              csiClusterRoleName: 'harvesterhci.io:csi-driver',
-              clusterRoleName:    'harvesterhci.io:cloudprovider',
-              namespace,
-              serviceAccountName: this.value.metadata.name,
-            },
-          });
-
-          const kubeconfig = res.data;
-
-          const harvesterKubeconfigSecret = await this.createKubeconfigSecret(kubeconfig);
-
-          this.agentConfig['cloud-provider-config'] = `secret://fleet-default:${ harvesterKubeconfigSecret?.metadata?.name }`;
-
-          const harvesterCloudProviderKey = this.chartVersionKey(HARVESTER_CLOUD_PROVIDER);
-
-          if (this.isCreate) {
-            set(this.userChartValues, `'${ harvesterCloudProviderKey }'.global.cattle.clusterName`, this.value.metadata.name);
-          }
-
-          const distroSubdir = this.value?.spec?.kubernetesVersion?.includes('k3s') ? DEFAULT_SUBDIRS.K8S_DISTRO_K3S : DEFAULT_SUBDIRS.K8S_DISTRO_RKE2;
-          const distroRoot = this.value?.spec?.rkeConfig?.dataDirectories?.k8sDistro?.length ? this.value?.spec?.rkeConfig?.dataDirectories?.k8sDistro : `${ DEFAULT_COMMON_BASE_PATH }/${ distroSubdir }`;
-
-          set(this.userChartValues, `'${ harvesterCloudProviderKey }'.cloudConfigPath`, `${ distroRoot }/etc/config-files/cloud-provider-config`);
-        }
-      } catch (e) {
-        const cause = e.errors ? e.errors.join('; ') : e?.message;
-        const msg = this.t('cluster.harvester.kubeconfigSecret.error', { err: cause });
-
-        this.errors.push(msg);
-        throw new Error(msg);
-      }
-    },
-
-    // create a secret to reference the harvester cluster kubeconfig in rkeConfig
-    async createKubeconfigSecret(kubeconfig = '') {
-      const clusterName = this.value.metadata.name;
-      const secret = await this.$store.dispatch('management/create', {
-        type:     SECRET,
-        metadata: {
-          namespace: 'fleet-default', generateName: 'harvesterconfig', annotations: { [CAPI_ANNOTATIONS.SECRET_AUTH]: clusterName, [CAPI_ANNOTATIONS.SECRET_WILL_DELETE]: 'true' }
-        },
-        data: { credential: base64Encode(kubeconfig) }
+      return setHarvesterChartValues({
+        store:           this.$store,
+        t:               this.t,
+        agentConfig:     this.agentConfig,
+        credential:      this.credential,
+        isCreate:        this.isCreate,
+        isEdit:          this.isEdit,
+        liveValue:       this.liveValue,
+        value:           this.value,
+        machinePools:    this.machinePools,
+        userChartValues: this.userChartValues,
+        chartVersionKey: this.chartVersionKey,
+        errors:          this.errors,
       });
-
-      return secret.save({ url: '/v1/secrets', method: 'POST' });
     },
 
     cancel() {
@@ -1738,37 +1681,22 @@ export default {
         }
       });
     },
-    get,
 
     setHarvesterDefaultCloudProvider() {
-      if (this.isHarvesterDriver &&
-        this.mode === _CREATE &&
-        this.agentConfig &&
-        !this.agentConfig['cloud-provider-name'] &&
-        !this.isHarvesterExternalCredential &&
-        !this.isHarvesterIncompatible
-      ) {
-        this.agentConfig['cloud-provider-name'] = HARVESTER;
-      } else {
-        this.agentConfig['cloud-provider-name'] = '';
-      }
+      setHarvesterDefaultCloudProvider({
+        isHarvesterDriver:             this.isHarvesterDriver,
+        mode:                          this.mode,
+        agentConfig:                   this.agentConfig,
+        isHarvesterExternalCredential: this.isHarvesterExternalCredential,
+        isHarvesterIncompatible:       this.isHarvesterIncompatible,
+      });
     },
 
     async setHarvesterVersionRange() {
-      const clusterId = this.credential?.decodedData?.clusterId;
-      const clusterType = this.credential?.decodedData?.clusterType;
+      const range = await fetchHarvesterVersionRange(this.$store, this.credential);
 
-      if (clusterId && clusterType === 'imported') {
-        const url = `/k8s/clusters/${ clusterId }/v1`;
-        const res = await this.$store.dispatch('cluster/request', { url: `${ url }/${ HCI.SETTING }s` });
-
-        const version = (res?.data || []).find((s) => s.id === 'harvester-csi-ccm-versions');
-
-        if (version) {
-          this.harvesterVersionRange = JSON.parse(version.value || version.default || '{}');
-        } else {
-          this.harvesterVersionRange = {};
-        }
+      if (range) {
+        this.harvesterVersionRange = range;
       }
       this.setHarvesterDefaultCloudProvider();
     },
