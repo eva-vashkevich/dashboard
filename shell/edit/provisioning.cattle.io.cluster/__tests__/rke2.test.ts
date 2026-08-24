@@ -248,7 +248,6 @@ describe('component: rke2', () => {
       data: (() => ({
         credentialId: 'I am authenticated',
         credential:   { decodedData: { clusterId: 'some-cluster-id' } },
-        machinePools: [],
       })) as any,
 
       global: {
@@ -271,6 +270,11 @@ describe('component: rke2', () => {
         stubs: defaultStubs,
       },
     });
+
+    // machinePools is owned by the useMachinePools composable (exposed via setup()), not component
+    // data - the `data` mount option only reaches `$data`, so it has to be seeded through the
+    // instance proxy instead.
+    (wrapper.vm as any).machinePools = [];
 
     // we need to mock the "save" method from the create-edit-view-mixin
     // otherwise we get console errors
@@ -681,7 +685,7 @@ describe('component: rke2', () => {
       const dispatch = jest.fn();
       const wrapper = createWrapper({ mode: _EDIT, dispatch });
 
-      await wrapper.setData({ machinePools: [{ id: 'pool1' }] });
+      (wrapper.vm as any).machinePools = [{ id: 'pool1' }];
 
       await (wrapper.vm as any).showIpv6Warning();
 
@@ -692,7 +696,7 @@ describe('component: rke2', () => {
       const dispatch = jest.fn();
       const wrapper = createWrapper({ dispatch });
 
-      await wrapper.setData({ machinePools: [{ id: 'pool1' }] });
+      (wrapper.vm as any).machinePools = [{ id: 'pool1' }];
 
       Object.defineProperty(wrapper.vm, 'selectedVersion', { get: () => ({ label: 'v1.30.0+rke2r1' }) });
       Object.defineProperty(wrapper.vm, 'hasOnlyIpv6Pools', { get: () => true });
@@ -714,7 +718,7 @@ describe('component: rke2', () => {
       });
       const wrapper = createWrapper({ dispatch });
 
-      await wrapper.setData({ machinePools: [{ id: 'pool1' }] });
+      (wrapper.vm as any).machinePools = [{ id: 'pool1' }];
 
       Object.defineProperty(wrapper.vm, 'selectedVersion', { get: () => ({ label: 'v1.30.0+k3s1' }) });
       Object.defineProperty(wrapper.vm, 'hasOnlyIpv6Pools', { get: () => true });
@@ -746,7 +750,7 @@ describe('component: rke2', () => {
       });
       const wrapper = createWrapper({ dispatch });
 
-      await wrapper.setData({ machinePools: [{ id: 'pool1' }] });
+      (wrapper.vm as any).machinePools = [{ id: 'pool1' }];
 
       Object.defineProperty(wrapper.vm, 'hasOnlyIpv6Pools', { get: () => true });
       Object.defineProperty(wrapper.vm, 'hasDualStackPools', { get: () => false });
@@ -986,53 +990,9 @@ describe('component: rke2', () => {
 
   // fetchRke2Versions now lives in shell/composables/useKubernetesVersions.ts - see useKubernetesVersions.test.ts.
 
-  // Characterization tests written ahead of extracting machine-pool orchestration into a composable.
-  describe('methods: removeMachinePool', () => {
-    it('does nothing when the index does not exist', () => {
-      const vm: any = { machinePools: [{ create: true }] };
-
-      (rke2.methods as any).removeMachinePool.call(vm, 5);
-
-      expect(vm.machinePools).toHaveLength(1);
-    });
-
-    it('drops a not-yet-saved pool entirely', () => {
-      const pool = { create: true };
-      const vm: any = { machinePools: [pool] };
-
-      (rke2.methods as any).removeMachinePool.call(vm, 0);
-
-      expect(vm.machinePools).toHaveLength(0);
-    });
-
-    it('marks an existing pool for removal instead of deleting it', () => {
-      const pool = { create: false };
-      const vm: any = { machinePools: [pool] };
-
-      (rke2.methods as any).removeMachinePool.call(vm, 0);
-
-      expect(vm.machinePools).toHaveLength(1);
-      expect(pool.remove).toBe(true);
-    });
-  });
-
-  describe('methods: machinePoolValidationChanged', () => {
-    it('records the validation state for a pool', () => {
-      const vm: any = { machinePoolValidation: {} };
-
-      (rke2.methods as any).machinePoolValidationChanged.call(vm, 'pool-1', false);
-
-      expect(vm.machinePoolValidation['pool-1']).toBe(false);
-    });
-
-    it('removes the entry when the value is undefined', () => {
-      const vm: any = { machinePoolValidation: { 'pool-1': false } };
-
-      (rke2.methods as any).machinePoolValidationChanged.call(vm, 'pool-1', undefined);
-
-      expect(vm.machinePoolValidation).not.toHaveProperty('pool-1');
-    });
-  });
+  // nodeTotals/hasRequiredNodes/unremovedMachinePools/hasOnlyIpv6Pools/hasDualStackPools/
+  // removeMachinePool/machinePoolValidationChanged now live in
+  // shell/composables/useMachinePools.ts - see useMachinePools.test.ts.
 
   // Characterization tests written ahead of extracting registry configuration into a composable.
   describe('methods: initRegistry', () => {
