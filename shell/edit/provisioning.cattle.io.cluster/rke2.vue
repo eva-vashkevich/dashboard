@@ -73,6 +73,12 @@ const FLEET_AGENT_CUSTOMIZATION = 'fleetAgentDeploymentCustomization';
 const REGISTRIES_TAB_NAME = 'registry';
 const INIT_HOOKS = '_initHooks';
 
+function setDefault(obj, key, value) {
+  if (!obj[key]) {
+    obj[key] = value;
+  }
+}
+
 export default {
   emits: ['update:value', 'input'],
 
@@ -167,55 +173,28 @@ export default {
   },
 
   beforeCreate() {
-    if (!this.value.spec.rkeConfig) {
-      this.value.spec.rkeConfig = {};
-    }
+    setDefault(this.value.spec, 'rkeConfig', {});
 
-    if (!this.value.spec.rkeConfig.chartValues) {
-      this.value.spec.rkeConfig.chartValues = {};
-    }
+    const { rkeConfig } = this.value.spec;
 
-    if (!this.value.spec.rkeConfig.upgradeStrategy) {
-      this.value.spec.rkeConfig.upgradeStrategy = {
-        controlPlaneConcurrency:  '1',
-        controlPlaneDrainOptions: {},
-        workerConcurrency:        '1',
-        workerDrainOptions:       {},
-      };
-    }
+    setDefault(rkeConfig, 'chartValues', {});
+    setDefault(rkeConfig, 'upgradeStrategy', {
+      controlPlaneConcurrency:  '1',
+      controlPlaneDrainOptions: {},
+      workerConcurrency:        '1',
+      workerDrainOptions:       {},
+    });
+    setDefault(rkeConfig, 'dataDirectories', {
+      systemAgent: '', provisioning: '', k8sDistro: '',
+    });
+    setDefault(rkeConfig.dataDirectories, 'systemAgent', '');
+    setDefault(rkeConfig.dataDirectories, 'provisioning', '');
+    setDefault(rkeConfig.dataDirectories, 'k8sDistro', '');
+    setDefault(rkeConfig, 'machineGlobalConfig', {});
+    setDefault(rkeConfig, 'networking', {});
 
-    // default for dataDirectories configuration obj
-    if (!this.value.spec.rkeConfig.dataDirectories) {
-      this.value.spec.rkeConfig.dataDirectories = {
-        systemAgent:  '',
-        provisioning: '',
-        k8sDistro:    '',
-      };
-    }
-
-    // default for dataDirectories configuration systemAgent config
-    if (!this.value.spec.rkeConfig.dataDirectories.systemAgent) {
-      this.value.spec.rkeConfig.dataDirectories.systemAgent = '';
-    }
-    // default for dataDirectories configuration provisioning config
-    if (!this.value.spec.rkeConfig.dataDirectories.provisioning) {
-      this.value.spec.rkeConfig.dataDirectories.provisioning = '';
-    }
-    // default for dataDirectories configuration k8sDistro config
-    if (!this.value.spec.rkeConfig.dataDirectories.k8sDistro) {
-      this.value.spec.rkeConfig.dataDirectories.k8sDistro = '';
-    }
-
-    if (!this.value.spec.rkeConfig.machineGlobalConfig) {
-      this.value.spec.rkeConfig.machineGlobalConfig = {};
-    }
-
-    if (!this.value.spec.rkeConfig.networking) {
-      this.value.spec.rkeConfig.networking = {};
-    }
-
-    if (!this.value.spec.rkeConfig.machineSelectorConfig?.length) {
-      this.value.spec.rkeConfig.machineSelectorConfig = [{ config: {} }];
+    if (!rkeConfig.machineSelectorConfig?.length) {
+      rkeConfig.machineSelectorConfig = [{ config: {} }];
     }
   },
 
@@ -281,7 +260,7 @@ export default {
     showClusterAppearance() {
       return this.mode === _CREATE;
     },
-    clusterBadgeAbbreviation() {
+    previewCluster() {
       return this.$store.getters['customisation/getPreviewCluster'];
     },
     rkeConfig() {
@@ -329,7 +308,6 @@ export default {
 
     unsupportedSelectorConfig() {
       let global = 0;
-      let kubeletOnly = 0;
       let other = 0;
 
       // The form supports one config that has no selector for all the main parts
@@ -338,21 +316,18 @@ export default {
       // show a warning that you're editing only part of the config in the UI.
 
       for (const conf of this.value.spec?.rkeConfig?.machineSelectorConfig) {
-        if (conf.machineLabelSelector) {
-          const keys = Object.keys(conf.config || {});
-
-          if (keys.length === 0 || (keys.length === 1 && keys[0] === 'kubelet-arg')) {
-            kubeletOnly++;
-          } else {
-            other++;
-          }
-        } else {
+        if (!conf.machineLabelSelector) {
           global++;
+          continue;
+        }
+
+        const keys = Object.keys(conf.config || {});
+        const isKubeletOnly = keys.length === 0 || (keys.length === 1 && keys[0] === 'kubelet-arg');
+
+        if (!isKubeletOnly) {
+          other++;
         }
       }
-
-      // eslint-disable-next-line no-console
-      console.log(`Global: ${ global }, Kubelet Only: ${ kubeletOnly }, Other: ${ other }`);
 
       return (global > 1 || other > 0);
     },
@@ -725,7 +700,7 @@ export default {
   },
 
   watch: {
-    clusterBadgeAbbreviation: {
+    previewCluster: {
       immediate: true,
       handler(neu) {
         if (!neu) {
@@ -733,7 +708,7 @@ export default {
         }
 
         if (Object.keys(neu.badge).length <= 0) {
-          return { ...this.value };
+          return;
         }
 
         const obj = {
@@ -1202,31 +1177,57 @@ export default {
       return syncMachineConfigWithLatest(this.$store, this.initialMachinePoolsValues, machinePool);
     },
 
+    confirmMachinePoolYamlEdit() {
+      return new Promise((resolve, reject) => {
+        this.$store.dispatch('cluster/promptModal', {
+          component:      'GenericPrompt',
+          componentProps: {
+            title:     this.t('cluster.rke2.modal.editYamlMachinePool.title'),
+            body:      this.t('cluster.rke2.modal.editYamlMachinePool.body'),
+            applyMode: 'editAndContinue',
+            confirm:   async(confirmed) => {
+              if (confirmed) {
+                await this.validateMachinePool();
+
+                if (this.errors.length) {
+                  reject(new Error('Machine Pool validation errors'));
+                }
+
+                resolve();
+              } else {
+                reject(new Error('User Cancelled'));
+              }
+            }
+          },
+        });
+      });
+    },
+
+    // For Google, we need to set internal and external firewall prefixes if enabled, but it is
+    // better to track it here since cluster and pool names are guaranteed to be set by now.
+    applyGoogleFirewallPrefixes(entry, prefix) {
+      if (this.provider !== GOOGLE) {
+        return;
+      }
+
+      if (!!entry.config.setInternalFirewallRulePrefix) {
+        entry.config.internalFirewallRulePrefix = `${ this.value.metadata.name }`;
+      } else if (!!entry.config.internalFirewallRulePrefix) {
+        delete entry.config.internalFirewallRulePrefix;
+      }
+      if (!!entry.config.setExternalFirewallRulePrefix) {
+        entry.config.externalFirewallRulePrefix = prefix;
+      } else if (!!entry.config.externalFirewallRulePrefix) {
+        delete entry.config.externalFirewallRulePrefix;
+      }
+      // These have to be removed regardless of their value because they are not part of the object we are sending
+      delete entry.config.setInternalFirewallRulePrefix;
+      delete entry.config.setExternalFirewallRulePrefix;
+    },
+
     async saveMachinePools(hookContext) {
       if (hookContext === CONTEXT_HOOK_EDIT_YAML) {
-        await new Promise((resolve, reject) => {
-          this.$store.dispatch('cluster/promptModal', {
-            component:      'GenericPrompt',
-            componentProps: {
-              title:     this.t('cluster.rke2.modal.editYamlMachinePool.title'),
-              body:      this.t('cluster.rke2.modal.editYamlMachinePool.body'),
-              applyMode: 'editAndContinue',
-              confirm:   async(confirmed) => {
-                if (confirmed) {
-                  await this.validateMachinePool();
-
-                  if (this.errors.length) {
-                    reject(new Error('Machine Pool validation errors'));
-                  }
-
-                  resolve();
-                } else {
-                  reject(new Error('User Cancelled'));
-                }
-              }
-            },
-          });
-        });
+        await this.confirmMachinePoolYamlEdit();
       }
 
       const finalPools = [];
@@ -1249,23 +1250,7 @@ export default {
 
         const prefixFormatted = prefix.substr(0, 50).toLowerCase();
 
-        // For Google, we need to set internal and external firewall prefixes if enabled,
-        // but it is better to track it here since cluster and pool names are guaranteed to be set by now.
-        if (this.provider === GOOGLE) {
-          if (!!entry.config.setInternalFirewallRulePrefix) {
-            entry.config.internalFirewallRulePrefix = `${ this.value.metadata.name }`;
-          } else if (!!entry.config.internalFirewallRulePrefix) {
-            delete entry.config.internalFirewallRulePrefix;
-          }
-          if (!!entry.config.setExternalFirewallRulePrefix) {
-            entry.config.externalFirewallRulePrefix = prefix;
-          } else if (!!entry.config.externalFirewallRulePrefix) {
-            delete entry.config.externalFirewallRulePrefix;
-          }
-          // These have to be removed regardless of their value because they are not part of the object we are sending
-          delete entry.config.setInternalFirewallRulePrefix;
-          delete entry.config.setExternalFirewallRulePrefix;
-        }
+        this.applyGoogleFirewallPrefixes(entry, prefix);
 
         if (entry.create) {
           if (!entry.config.metadata?.name) {
@@ -1422,36 +1407,59 @@ export default {
       });
     },
 
+    // When editing to a different kubernetes version, addons with pending config diffs may get
+    // downgraded/reset by the version change - ask the user to confirm before continuing. Returns
+    // false if the user cancelled (or `showAddonConfirmation` rejected).
+    async confirmAddonDowngrade() {
+      const isEditVersion = this.isEdit && this.liveValue?.spec?.kubernetesVersion !== this.value?.spec?.kubernetesVersion;
+
+      if (!isEditVersion) {
+        return true;
+      }
+
+      const hasDiffs = Object.values(this.addonConfigDiffs).some((d) => !isEmpty(d));
+
+      if (!hasDiffs) {
+        return true;
+      }
+
+      const addonNamesWithDiffs = [];
+
+      for (const name in this.addonConfigDiffs) {
+        const diff = this.addonConfigDiffs[name];
+
+        if (!isEmpty(diff)) {
+          addonNamesWithDiffs.push(name);
+        }
+      }
+
+      return this.showAddonConfirmation(
+        addonNamesWithDiffs,
+        this.liveValue.spec.kubernetesVersion,
+        this.value.spec.kubernetesVersion
+      );
+    },
+
+    // Snapshot fleet/cluster agent customization before save, so it can be re-applied if the save
+    // fails - the cleanup that runs before save (agentConfigurationCleanup) strips it first.
+    snapshotAgentCustomization() {
+      return {
+        clusterAgentDeploymentCustomization: this.value.spec[CLUSTER_AGENT_CUSTOMIZATION] ? JSON.parse(JSON.stringify(this.value.spec[CLUSTER_AGENT_CUSTOMIZATION])) : null,
+        fleetAgentDeploymentCustomization:   this.value.spec[FLEET_AGENT_CUSTOMIZATION] ? JSON.parse(JSON.stringify(this.value.spec[FLEET_AGENT_CUSTOMIZATION])) : null,
+      };
+    },
+
+    restoreAgentCustomization(snapshot) {
+      this.value.spec[CLUSTER_AGENT_CUSTOMIZATION] = snapshot.clusterAgentDeploymentCustomization;
+      this.value.spec[FLEET_AGENT_CUSTOMIZATION] = snapshot.fleetAgentDeploymentCustomization;
+    },
+
     async _doSaveOverride(btnCb) {
       // We cannot use the hook, because it is triggered on YAML toggle without restore initialized data
       this.agentConfigurationCleanup();
 
-      const isEditVersion = this.isEdit && this.liveValue?.spec?.kubernetesVersion !== this.value?.spec?.kubernetesVersion;
-
-      if (isEditVersion) {
-        const hasDiffs = Object.values(this.addonConfigDiffs).some((d) => !isEmpty(d));
-
-        if (hasDiffs) {
-          const addonNamesWithDiffs = [];
-
-          for (const name in this.addonConfigDiffs) {
-            const diff = this.addonConfigDiffs[name];
-
-            if (!isEmpty(diff)) {
-              addonNamesWithDiffs.push(name);
-            }
-          }
-
-          const shouldContinue = await this.showAddonConfirmation(
-            addonNamesWithDiffs,
-            this.liveValue.spec.kubernetesVersion,
-            this.value.spec.kubernetesVersion
-          );
-
-          if (!shouldContinue) {
-            return btnCb('cancelled');
-          }
-        }
+      if (!await this.confirmAddonDowngrade()) {
+        return btnCb('cancelled');
       }
 
       this.validateClusterName();
@@ -1479,19 +1487,14 @@ export default {
         delete this.value.spec.rkeConfig.machineGlobalConfig.profile;
       }
 
-      // Store the current data for fleet and cluster agent so that we can re-apply it later if the save fails
-      // The cleanup occurs before save with agentConfigurationCleanup()
-      const clusterAgentDeploymentCustomization = this.value.spec[CLUSTER_AGENT_CUSTOMIZATION] ? JSON.parse(JSON.stringify(this.value.spec[CLUSTER_AGENT_CUSTOMIZATION])) : null;
-      const fleetAgentDeploymentCustomization = this.value.spec[FLEET_AGENT_CUSTOMIZATION] ? JSON.parse(JSON.stringify(this.value.spec[FLEET_AGENT_CUSTOMIZATION])) : null;
+      const agentCustomizationSnapshot = this.snapshotAgentCustomization();
 
       await this.save(btnCb);
 
       // comes from createEditView mixin
       // if there are any errors saving, restore the agent config data
       if (this.errors?.length) {
-        // Ensure the agent configuration is set back to the values before we changed (cleaned) it
-        this.value.spec[CLUSTER_AGENT_CUSTOMIZATION] = clusterAgentDeploymentCustomization;
-        this.value.spec[FLEET_AGENT_CUSTOMIZATION] = fleetAgentDeploymentCustomization;
+        this.restoreAgentCustomization(agentCustomizationSnapshot);
       }
     },
 
