@@ -1,7 +1,8 @@
 import { ref, computed } from 'vue';
-import { useStore } from 'vuex';
+import { useStore, Store } from 'vuex';
 import { useI18n } from '@shell/composables/useI18n';
 import { removeObject } from '@shell/utils/array';
+import { handleConflict } from '@shell/plugins/dashboard-store/normalize';
 
 /**
  * Classes to be adopted by the node badges in Machine pools
@@ -26,10 +27,12 @@ const NODE_TOTAL = {
  * presentation-level bits (node role totals/badges, ipv6/dual-stack detection) from them.
  *
  * Deliberately does NOT own machine pool creation/save/cleanup (initMachinePools, addMachinePool,
- * saveMachinePools, cleanupMachinePools, syncMachineConfigWithLatest, validateMachinePool) - those
- * are wired into the consuming component's save-hook lifecycle (registerBeforeHook/registerAfterHook)
- * and the extension-provider mechanism, both of which need `this` on the component instance. Moving
- * them here would just relocate the coupling, not remove it.
+ * saveMachinePools, cleanupMachinePools, validateMachinePool) - those are wired into the consuming
+ * component's save-hook lifecycle (registerBeforeHook/registerAfterHook) and the extension-provider
+ * mechanism, both of which need `this` on the component instance. Moving them here would just
+ * relocate the coupling, not remove it. `syncMachineConfigWithLatest` is the one exception among
+ * that group: it only needs the store and the initial-values map, so it's exported below as a plain
+ * function the consuming component's method delegates to.
  */
 export function useMachinePools() {
   const store = useStore();
@@ -152,4 +155,46 @@ export function useMachinePools() {
     removeMachinePool,
     machinePoolValidationChanged,
   };
+}
+
+/**
+ * Resolves a single machine pool's config against the latest server state before it's saved,
+ * surfacing a conflict as a thrown error (which the save flow uses to abort and show the user).
+ *
+ * `initialMachinePoolsValues` is keyed by machine config id, holding a snapshot taken when the
+ * pool was first loaded/created - used as the merge base for `handleConflict`.
+ */
+export async function syncMachineConfigWithLatest(
+  store: Store<any>,
+  initialMachinePoolsValues: Record<string, any>,
+  machinePool: any
+) {
+  if (machinePool?.config?.id) {
+    // Use management/request instead of management/find to avoid overwriting the current machine pool in the store
+    const _latestConfig = await store.dispatch('management/request', { url: `/v1/${ machinePool.config.type }s/${ machinePool.config.id }` });
+    const latestConfig = await store.dispatch('management/create', _latestConfig);
+
+    const _initialMachinePoolValue = initialMachinePoolsValues[machinePool?.config?.id] || {};
+    const initialMachinePoolValue = await store.dispatch('management/create', _initialMachinePoolValue);
+
+    // if there's the initial machine pool config, we are in a good position to apply the handleConflict function
+    // to deal with out-of-sync data between machinePools configs. This also mutates the data inside machinePool.config through object reference
+    const conflict = await handleConflict(
+      initialMachinePoolValue,
+      machinePool.config,
+      latestConfig,
+      {
+        dispatch: store.dispatch,
+        getters:  store.getters
+      },
+      'management'
+    );
+
+    // if there's conflicts, throw Error stops save process and surfaces error to user
+    if (conflict) {
+      // handleConflict resolves an array of conflict errors (or false); Error() stringifies
+      // whatever it's given, same as it did when this ran as untyped JS in rke2.vue.
+      throw Error(conflict as any);
+    }
+  }
 }

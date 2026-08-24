@@ -5,13 +5,12 @@ import merge from 'lodash/merge';
 import CreateEditView from '@shell/mixins/create-edit-view';
 import FormValidation from '@shell/mixins/form-validation';
 import { useKubernetesVersions, getDefaultVersion } from '@shell/composables/useKubernetesVersions';
-import { useMachinePools } from '@shell/composables/useMachinePools';
+import { useMachinePools, syncMachineConfigWithLatest } from '@shell/composables/useMachinePools';
 import { useRegistryConfig } from '@shell/composables/useRegistryConfig';
 import { useChartAddons } from '@shell/composables/useChartAddons';
 import { useCloudProviderConfig } from '@shell/composables/useCloudProviderConfig';
 import { normalizeName } from '@shell/utils/kube';
 import AccountAccess from '@shell/components/google/AccountAccess.vue';
-import { handleConflict } from '@shell/plugins/dashboard-store/normalize';
 
 import {
   CAPI,
@@ -1209,32 +1208,7 @@ export default {
     },
 
     async syncMachineConfigWithLatest(machinePool) {
-      if (machinePool?.config?.id) {
-        // Use management/request instead of management/find to avoid overwriting the current machine pool in the store
-        const _latestConfig = await this.$store.dispatch('management/request', { url: `/v1/${ machinePool.config.type }s/${ machinePool.config.id }` });
-        const latestConfig = await this.$store.dispatch('management/create', _latestConfig);
-
-        const _initialMachinePoolValue = this.initialMachinePoolsValues[machinePool?.config?.id] || {};
-        const initialMachinePoolValue = await this.$store.dispatch('management/create', _initialMachinePoolValue);
-
-        // if there's the initial machine pool config, we are in a good position to apply the handleConflict function
-        // to deal with out-of-sync data between machinePools configs. This also mutates the data inside machinePool.config through object reference
-        const conflict = await handleConflict(
-          initialMachinePoolValue,
-          machinePool.config,
-          latestConfig,
-          {
-            dispatch: this.$store.dispatch,
-            getters:  this.$store.getters
-          },
-          'management'
-        );
-
-        // if there's conflicts, throw Error stops save process and surfaces error to user
-        if (conflict) {
-          throw Error(conflict);
-        }
-      }
+      return syncMachineConfigWithLatest(this.$store, this.initialMachinePoolsValues, machinePool);
     },
 
     async saveMachinePools(hookContext) {
