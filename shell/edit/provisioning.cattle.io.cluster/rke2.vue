@@ -7,7 +7,9 @@ import FormValidation from '@shell/mixins/form-validation';
 import { useKubernetesVersions, getDefaultVersion } from '@shell/composables/useKubernetesVersions';
 import { useMachinePools, syncMachineConfigWithLatest } from '@shell/composables/useMachinePools';
 import { useRegistryConfig } from '@shell/composables/useRegistryConfig';
-import { useChartAddons } from '@shell/composables/useChartAddons';
+import {
+  useChartAddons, chartVersionKey, getChartValue, initAddons, showAddons, refreshComponentWithYamls, updateValues, syncChartValues, initYamlEditor, applyChartValues
+} from '@shell/composables/useChartAddons';
 import { useCloudProviderConfig, setHarvesterChartValues, setHarvesterDefaultCloudProvider, fetchHarvesterVersionRange } from '@shell/composables/useCloudProviderConfig';
 import { useClusterMembership, saveRoleBindings } from '@shell/composables/useClusterMembership';
 import { normalizeName } from '@shell/utils/kube';
@@ -24,9 +26,7 @@ import { _CREATE, _EDIT, _VIEW } from '@shell/config/query-params';
 
 import { clear } from '@shell/utils/array';
 import { createYaml } from '@shell/utils/create-yaml';
-import {
-  clone, diff, set, isEmpty, mergeWithReplace
-} from '@shell/utils/object';
+import { clone, set, isEmpty, mergeWithReplace } from '@shell/utils/object';
 import { labelForAddon, initSchedulingCustomization, addonConfigPreserve } from '@shell/utils/cluster';
 import { AGENT_CONFIGURATION_TYPES } from '@shell/config/settings';
 
@@ -1541,88 +1541,65 @@ export default {
     },
 
     async getChartValue(chartName) {
-      const entry = this.chartVersions[chartName];
-
-      if (entry) {
-        try {
-          const res = await this.$store.dispatch('catalog/getVersionInfo', {
-            repoType:    'cluster',
-            repoName:    entry.repo,
-            chartName,
-            versionName: entry.version,
-          });
-
-          this.versionInfo[chartName] = res;
-          const key = this.chartVersionKey(chartName);
-
-          if (!this.userChartValues[key]) {
-            this.userChartValues[key] = {};
-          }
-        } catch (e) {
-          console.error(`Failed to fetch or process chart info for ${ chartName }`); // eslint-disable-line no-console
-        }
-      }
+      return getChartValue(chartName, {
+        chartVersions:   this.chartVersions,
+        store:           this.$store,
+        versionInfo:     this.versionInfo,
+        userChartValues: this.userChartValues,
+        addonVersions:   this.addonVersions,
+      });
     },
 
-    /**
-     * Ensure all chart information required to show addons is available
-     *
-     * This basically means
-     * 1) That the full chart relating to the addon is fetched (which includes core chart, readme and values)
-     * 2) We're ready to cache any values the user provides for each addon
-     */
     async initAddons() {
       this.addonConfigValidation = {};
-      const ingressCharts = !this.isK3s ? ['rke2-ingress-nginx', 'rke2-traefik'] : [];
 
-      for (const chartName of [...this.addonNames, ...ingressCharts]) {
-        // prevent fetching of addon config for 'none' CNI option
-        // https://github.com/rancher/dashboard/issues/10338
-        if (this.versionInfo[chartName] || chartName.includes('none')) {
-          continue;
-        }
-
-        await this.getChartValue(chartName);
-      }
+      return initAddons({
+        addonNames:      this.addonNames,
+        isK3s:           this.isK3s,
+        chartVersions:   this.chartVersions,
+        store:           this.$store,
+        versionInfo:     this.versionInfo,
+        userChartValues: this.userChartValues,
+        addonVersions:   this.addonVersions,
+      });
     },
 
     showAddons(key) {
       this.addonsRev++;
-      this.addonNames.forEach((name) => {
-        const chartValues = this.versionInfo[name]?.questions ? this.initYamlEditor(name) : {};
 
-        this.userChartValuesTemp[name] = chartValues;
+      return showAddons(key, {
+        addonNames:          this.addonNames,
+        versionInfo:         this.versionInfo,
+        userChartValues:     this.userChartValues,
+        userChartValuesTemp: this.userChartValuesTemp,
+        addonVersions:       this.addonVersions,
+        refs:                this.$refs,
+        refreshYamls:        this.refreshYamls,
       });
-      this.refreshComponentWithYamls(key);
     },
     refreshComponentWithYamls(key) {
-      const component = this.$refs[key];
-
-      if (Array.isArray(component) && component.length > 0) {
-        this.refreshYamls(component[0].$refs);
-      } else if (component) {
-        this.refreshYamls(component.$refs);
-      }
+      return refreshComponentWithYamls(key, { refs: this.$refs, refreshYamls: this.refreshYamls });
     },
 
     updateValues(name, values) {
-      this.userChartValuesTemp[name] = values;
-      this.syncChartValues(name);
+      return updateValues(name, values, { userChartValuesTemp: this.userChartValuesTemp, syncChartValues: this.syncChartValues });
     },
 
     syncChartValues: throttle(function(name) {
-      const fromChart = this.versionInfo[name]?.values;
-      const fromUser = this.userChartValuesTemp[name];
-      const different = diff(fromChart, fromUser);
-
-      this.userChartValues[this.chartVersionKey(name)] = different;
+      return syncChartValues(name, {
+        versionInfo:         this.versionInfo,
+        userChartValuesTemp: this.userChartValuesTemp,
+        userChartValues:     this.userChartValues,
+        addonVersions:       this.addonVersions,
+      });
     }, 250, { leading: true }),
 
     initYamlEditor(name) {
-      const defaultChartValue = this.versionInfo[name];
-      const key = this.chartVersionKey(name);
-
-      return mergeWithReplace(defaultChartValue?.values, this.userChartValues[key]);
+      return initYamlEditor(name, {
+        versionInfo:     this.versionInfo,
+        userChartValues: this.userChartValues,
+        addonVersions:   this.addonVersions,
+      });
     },
 
     initServerAgentArgs() {
@@ -1649,9 +1626,7 @@ export default {
     },
 
     chartVersionKey(name) {
-      const addonVersion = this.addonVersions.find((av) => av.name === name);
-
-      return addonVersion ? `${ name }-${ addonVersion.version }` : name;
+      return chartVersionKey(name, this.addonVersions);
     },
 
     generateYaml() {
@@ -1668,17 +1643,11 @@ export default {
     },
 
     applyChartValues(rkeConfig) {
-      rkeConfig.chartValues = {};
-      const charts = [...this.addonNames, ...this.rke2Charts];
-
-      charts.forEach((name) => {
-        const key = this.chartVersionKey(name);
-
-        const userValues = this.userChartValues[key];
-
-        if (userValues) {
-          rkeConfig.chartValues[name] = userValues;
-        }
+      return applyChartValues(rkeConfig, {
+        addonNames:      this.addonNames,
+        rke2Charts:      this.rke2Charts,
+        userChartValues: this.userChartValues,
+        addonVersions:   this.addonVersions,
       });
     },
 
