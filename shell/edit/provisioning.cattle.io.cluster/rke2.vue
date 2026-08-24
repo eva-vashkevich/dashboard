@@ -8,6 +8,7 @@ import { useKubernetesVersions, getDefaultVersion } from '@shell/composables/use
 import { useMachinePools } from '@shell/composables/useMachinePools';
 import { useRegistryConfig } from '@shell/composables/useRegistryConfig';
 import { useChartAddons } from '@shell/composables/useChartAddons';
+import { useCloudProviderConfig } from '@shell/composables/useCloudProviderConfig';
 import { normalizeName } from '@shell/utils/kube';
 import AccountAccess from '@shell/components/google/AccountAccess.vue';
 import { handleConflict } from '@shell/plugins/dashboard-store/normalize';
@@ -40,7 +41,6 @@ import Tab from '@shell/components/Tabbed/Tab';
 import Tabbed from '@shell/components/Tabbed';
 
 import { canViewClusterMembershipEditor } from '@shell/components/form/Members/ClusterMembershipEditor';
-import semver from 'semver';
 
 import { CLOUD_CREDENTIAL_OVERRIDE } from '@shell/models/nodedriver';
 import { base64Encode } from '@shell/utils/crypto';
@@ -133,11 +133,14 @@ export default {
   },
 
   setup(props) {
+    const kubernetesVersions = useKubernetesVersions(props);
+
     return {
-      ...useKubernetesVersions(props),
+      ...kubernetesVersions,
       ...useMachinePools(),
       ...useRegistryConfig(props),
       ...useChartAddons(),
+      ...useCloudProviderConfig({ chartVersions: kubernetesVersions.chartVersions }),
     };
   },
 
@@ -235,7 +238,6 @@ export default {
       fvFormRuleSets:            [{
         path: 'metadata.name', rules: ['subDomain'], translationKey: 'nameNsDescription.name.label'
       }],
-      harvesterVersionRange:                    {},
       complianceOverride:                       false,
       truncateLimit:                            this.value.defaultHostnameLengthLimit || 0,
       busy:                                     false,
@@ -673,33 +675,6 @@ export default {
 
     isHarvesterExternalCredential() {
       return this.credential?.harvestercredentialConfig?.clusterType === 'external';
-    },
-
-    isHarvesterIncompatible() {
-      let ccmRke2Version = (this.chartVersions['harvester-cloud-provider'] || {})['version'];
-      let csiRke2Version = (this.chartVersions['harvester-csi-driver'] || {})['version'];
-
-      const ccmVersion = this.harvesterVersionRange?.['harvester-cloud-provider'];
-      const csiVersion = this.harvesterVersionRange?.['harvester-csi-provider'];
-
-      if ((ccmRke2Version || '').endsWith('00')) {
-        ccmRke2Version = ccmRke2Version.slice(0, -2);
-      }
-
-      if ((csiRke2Version || '').endsWith('00')) {
-        csiRke2Version = csiRke2Version.slice(0, -2);
-      }
-
-      if (ccmVersion && csiVersion) {
-        if (semver.satisfies(ccmRke2Version, ccmVersion) &&
-          semver.satisfies(csiRke2Version, csiVersion)) {
-          return false;
-        } else {
-          return true;
-        }
-      } else {
-        return false;
-      }
     },
 
     validationPassed() {

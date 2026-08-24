@@ -1135,59 +1135,8 @@ describe('component: rke2', () => {
     });
   });
 
-  // Characterization tests written ahead of extracting vSphere/Harvester cloud-provider wiring into a composable.
-  describe('computed: isHarvesterIncompatible', () => {
-    it('returns false when no Harvester version range info is present', () => {
-      const vm: any = { chartVersions: {}, harvesterVersionRange: {} };
-
-      expect((rke2.computed as any).isHarvesterIncompatible.call(vm)).toBe(false);
-    });
-
-    it('returns false when installed chart versions satisfy the Harvester version range', () => {
-      const vm: any = {
-        chartVersions: {
-          'harvester-cloud-provider': { version: '1.2.3' },
-          'harvester-csi-driver':     { version: '1.2.3' },
-        },
-        harvesterVersionRange: {
-          'harvester-cloud-provider': '>=1.0.0',
-          'harvester-csi-provider':   '>=1.0.0',
-        },
-      };
-
-      expect((rke2.computed as any).isHarvesterIncompatible.call(vm)).toBe(false);
-    });
-
-    it('returns true when installed chart versions do not satisfy the Harvester version range', () => {
-      const vm: any = {
-        chartVersions: {
-          'harvester-cloud-provider': { version: '0.5.0' },
-          'harvester-csi-driver':     { version: '0.5.0' },
-        },
-        harvesterVersionRange: {
-          'harvester-cloud-provider': '>=1.0.0',
-          'harvester-csi-provider':   '>=1.0.0',
-        },
-      };
-
-      expect((rke2.computed as any).isHarvesterIncompatible.call(vm)).toBe(true);
-    });
-
-    it('strips a trailing "00" patch suffix from the chart version before comparing', () => {
-      const vm: any = {
-        chartVersions: {
-          'harvester-cloud-provider': { version: '1.2.300' },
-          'harvester-csi-driver':     { version: '1.2.300' },
-        },
-        harvesterVersionRange: {
-          'harvester-cloud-provider': '1.2.3',
-          'harvester-csi-provider':   '1.2.3',
-        },
-      };
-
-      expect((rke2.computed as any).isHarvesterIncompatible.call(vm)).toBe(false);
-    });
-  });
+  // isHarvesterIncompatible now lives in shell/composables/useCloudProviderConfig.ts - see
+  // useCloudProviderConfig.test.ts.
 
   describe('methods: setHarvesterDefaultCloudProvider', () => {
     it('sets the cloud provider to harvester when on the Harvester driver, creating, with no existing provider and no incompatibility', () => {
