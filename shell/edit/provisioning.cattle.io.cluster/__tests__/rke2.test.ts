@@ -442,10 +442,7 @@ describe('component: rke2', () => {
         },
         provider: 'custom'
       },
-      data: (() => ({
-        credentialId:    'I am authenticated',
-        userChartValues: chartValues,
-      })) as any,
+      data: (() => ({ credentialId: 'I am authenticated' })) as any,
 
       global: {
         mocks: {
@@ -458,9 +455,10 @@ describe('component: rke2', () => {
       },
     });
 
-    // rke2Versions is owned by the useKubernetesVersions composable (exposed via setup()), not
-    // component data - the `data` mount option / wrapper.setData() only reach `$data`, so it has
-    // to be seeded directly through the instance proxy instead.
+    // rke2Versions/userChartValues are owned by the useKubernetesVersions/useChartAddons composables
+    // (exposed via setup()), not component data - the `data` mount option / wrapper.setData() only
+    // reach `$data`, so they have to be seeded directly through the instance proxy instead.
+    (wrapper.vm as any).userChartValues = chartValues;
     (wrapper.vm as any).rke2Versions = [
       {
         id:                      'v1.32.3+rke2r1',
@@ -1120,54 +1118,8 @@ describe('component: rke2', () => {
     });
   });
 
-  describe('methods: refreshYamls', () => {
-    it('calls refresh on yaml-prefixed refs, ignoring others', () => {
-      const yamlRef = { refresh: jest.fn() };
-      const otherRef = { refresh: jest.fn() };
-      const vm: any = {};
-
-      (rke2.methods as any).refreshYamls.call(vm, { yamlEditor: yamlRef, somethingElse: otherRef });
-
-      expect(yamlRef.refresh).toHaveBeenCalled();
-      expect(otherRef.refresh).not.toHaveBeenCalled();
-    });
-
-    it('refreshes every entry when the ref is an array', () => {
-      const first = { refresh: jest.fn() };
-      const second = { refresh: jest.fn() };
-      const vm: any = {};
-
-      (rke2.methods as any).refreshYamls.call(vm, { yamlEditor: [first, second] });
-
-      expect(first.refresh).toHaveBeenCalled();
-      expect(second.refresh).toHaveBeenCalled();
-    });
-
-    it('tolerates an undefined ref entry without throwing', () => {
-      const vm: any = {};
-
-      expect(() => (rke2.methods as any).refreshYamls.call(vm, { yamlEditor: undefined })).not.toThrow();
-    });
-  });
-
-  describe('methods: showAddonConfirmation', () => {
-    it('resolves with the value passed to the confirmation dialog callback', async() => {
-      const dispatch = jest.fn((_action: string, opts: any) => {
-        opts.resources[0](true);
-      });
-      const vm: any = { $store: { dispatch } };
-
-      const result = await (rke2.methods as any).showAddonConfirmation.call(vm, ['rke2-cilium'], 'v1.27.0', 'v1.28.0');
-
-      expect(result).toBe(true);
-      expect(dispatch).toHaveBeenCalledWith('cluster/promptModal', expect.objectContaining({
-        component:      'AddonConfigConfirmationDialog',
-        componentProps: {
-          addonNames: ['rke2-cilium'], previousKubeVersion: 'v1.27.0', newKubeVersion: 'v1.28.0'
-        },
-      }));
-    });
-  });
+  // refreshYamls/showAddonConfirmation now live in shell/composables/useChartAddons.ts - see
+  // useChartAddons.test.ts.
 
   describe('methods: chartVersionKey', () => {
     it('returns a version-qualified key when a matching addon version exists', () => {

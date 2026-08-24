@@ -1,13 +1,13 @@
 <script>
 import difference from 'lodash/difference';
 import throttle from 'lodash/throttle';
-import isArray from 'lodash/isArray';
 import merge from 'lodash/merge';
 import CreateEditView from '@shell/mixins/create-edit-view';
 import FormValidation from '@shell/mixins/form-validation';
 import { useKubernetesVersions, getDefaultVersion } from '@shell/composables/useKubernetesVersions';
 import { useMachinePools } from '@shell/composables/useMachinePools';
 import { useRegistryConfig } from '@shell/composables/useRegistryConfig';
+import { useChartAddons } from '@shell/composables/useChartAddons';
 import { normalizeName } from '@shell/utils/kube';
 import AccountAccess from '@shell/components/google/AccountAccess.vue';
 import { handleConflict } from '@shell/plugins/dashboard-store/normalize';
@@ -137,6 +137,7 @@ export default {
       ...useKubernetesVersions(props),
       ...useMachinePools(),
       ...useRegistryConfig(props),
+      ...useChartAddons(),
     };
   },
 
@@ -230,18 +231,7 @@ export default {
       credential:                null,
       initialMachinePoolsValues: {},
       s3Backup:                  false,
-      /**
-       * All info related to a specific version of the chart
-       *
-       * This includes chart itself, README and values
-       *
-       * { [chartName:string]: { chart: json, readme: string, values: json } }
-       */
-      versionInfo:               {},
       membershipUpdate:          {},
-      userChartValues:           {},
-      userChartValuesTemp:       {},
-      addonsRev:                 0,
       fvFormRuleSets:            [{
         path: 'metadata.name', rules: ['subDomain'], translationKey: 'nameNsDescription.name.label'
       }],
@@ -252,7 +242,6 @@ export default {
       infrastructureClusterValid:               true,
       provisioningClusterValid:                 true,
       machinePoolErrors:                        {},
-      addonConfigValidation:                    {}, // validation state of each addon config (boolean of whether codemirror's yaml lint passed)
       stackPreferenceError:                     false, //  spec.networking.stackPreference is validated in conjunction with hasOnlyIpv6Pools
       allNamespaces:                            [],
       extensionTabs:                            getApplicableExtensionEnhancements(this, ExtensionPoint.TAB, TabLocation.CLUSTER_CREATE_RKE2, this.$route, this),
@@ -1467,20 +1456,6 @@ export default {
       });
     },
 
-    showAddonConfirmation(addonNames, previousKubeVersion, newKubeVersion) {
-      return new Promise((resolve) => {
-        this.$store.dispatch('cluster/promptModal', {
-          component:      'AddonConfigConfirmationDialog',
-          componentProps: {
-            addonNames,
-            previousKubeVersion,
-            newKubeVersion
-          },
-          resources: [(value) => resolve(value)]
-        });
-      });
-    },
-
     // Set busy before save and clear after save
     async saveOverride(btnCb) {
       this['busy'] = true;
@@ -1742,19 +1717,6 @@ export default {
         this.refreshYamls(component[0].$refs);
       } else if (component) {
         this.refreshYamls(component.$refs);
-      }
-    },
-
-    refreshYamls(refs) {
-      const keys = Object.keys(refs).filter((x) => x.startsWith('yaml'));
-
-      for (const k of keys) {
-        const entry = refs[k];
-        const list = isArray(entry) ? entry : [entry];
-
-        for (const component of list) {
-          component?.refresh(); // `yaml` ref can be undefined on switching from Basic to Addon tab (Azure --> Amazon --> addon)
-        }
       }
     },
 
