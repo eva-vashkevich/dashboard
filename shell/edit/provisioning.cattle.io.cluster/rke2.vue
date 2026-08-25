@@ -1,7 +1,6 @@
 <script>
 import difference from 'lodash/difference';
 import throttle from 'lodash/throttle';
-import merge from 'lodash/merge';
 import CreateEditView from '@shell/mixins/create-edit-view';
 import FormValidation from '@shell/mixins/form-validation';
 import { useKubernetesVersions, getDefaultVersion } from '@shell/composables/useKubernetesVersions';
@@ -216,7 +215,6 @@ export default {
       busy:                                     false,
       infrastructureClusterValid:               true,
       provisioningClusterValid:                 true,
-      machinePoolErrors:                        {},
       stackPreferenceError:                     false, //  spec.networking.stackPreference is validated in conjunction with hasOnlyIpv6Pools
       allNamespaces:                            [],
       extensionTabs:                            getApplicableExtensionEnhancements(this, ExtensionPoint.TAB, TabLocation.CLUSTER_CREATE_RKE2, this.$route, this),
@@ -1775,35 +1773,9 @@ export default {
     },
 
     handleMachinePoolError(error) {
-      this.machinePoolErrors = merge(this.machinePoolErrors, error);
+      const errors = this.recordMachinePoolError(error);
 
-      const errors = Object.entries(this.machinePoolErrors)
-        .map((x) => {
-          if (!x[1].length) {
-            return;
-          }
-
-          const formattedFields = (() => {
-            switch (x[1].length) {
-            case 1:
-              return x[1][0];
-            case 2:
-              return `${ x[1][0] } and ${ x[1][1] }`;
-            default: {
-              const [head, ...rest] = x[1];
-
-              return `${ rest.join(', ') }, and ${ head }`;
-            }
-            }
-          })();
-
-          return this.t('cluster.banner.machinePoolError', {
-            count: x[1].length, pool_name: x[0], fields: formattedFields
-          }, true);
-        })
-        .filter((x) => x);
-
-      if (!errors) {
+      if (!errors.length) {
         return;
       }
 

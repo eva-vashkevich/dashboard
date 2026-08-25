@@ -162,6 +162,66 @@ describe('composable: useMachinePools', () => {
     });
   });
 
+  describe('recordMachinePoolError', () => {
+    // `useI18n` is globally mocked in jest.setup.js as `t: (key, options) => \`${key}-${JSON.stringify(options)}\``,
+    // independently of the `mockGetters`/vuex mock above - so expected messages are built from that
+    // format, not a real translation.
+    const message = (count: number, poolName: string, fields: string) => `cluster.banner.machinePoolError-${ JSON.stringify({
+      count, pool_name: poolName, fields
+    }) }`;
+
+    it('formats a single offending field without a conjunction', () => {
+      const { recordMachinePoolError } = useMachinePools();
+
+      const result = recordMachinePoolError({ 'pool-1': ['quantity'] });
+
+      expect(result).toStrictEqual([message(1, 'pool-1', 'quantity')]);
+    });
+
+    it('joins two offending fields with "and"', () => {
+      const { recordMachinePoolError } = useMachinePools();
+
+      const result = recordMachinePoolError({ 'pool-1': ['quantity', 'roles'] });
+
+      expect(result).toStrictEqual([message(2, 'pool-1', 'quantity and roles')]);
+    });
+
+    it('joins three or more offending fields with commas and a trailing "and"', () => {
+      const { recordMachinePoolError } = useMachinePools();
+
+      const result = recordMachinePoolError({ 'pool-1': ['quantity', 'roles', 'labels'] });
+
+      expect(result).toStrictEqual([message(3, 'pool-1', 'roles, labels, and quantity')]);
+    });
+
+    it('merges errors across multiple calls and returns one message per pool', () => {
+      const { recordMachinePoolError } = useMachinePools();
+
+      recordMachinePoolError({ 'pool-1': ['quantity'] });
+      const result = recordMachinePoolError({ 'pool-2': ['roles'] });
+
+      expect(result).toStrictEqual([message(1, 'pool-1', 'quantity'), message(1, 'pool-2', 'roles')]);
+    });
+
+    it('omits pools whose error list is empty', () => {
+      const { recordMachinePoolError } = useMachinePools();
+
+      recordMachinePoolError({ 'pool-1': ['quantity'] });
+      const result = recordMachinePoolError({ 'pool-2': [] });
+
+      expect(result).toStrictEqual([message(1, 'pool-1', 'quantity')]);
+    });
+
+    it('does NOT clear a pool\'s prior errors by reporting an empty list - lodash `merge` never shrinks an existing array', () => {
+      const { recordMachinePoolError } = useMachinePools();
+
+      recordMachinePoolError({ 'pool-1': ['quantity'] });
+      const result = recordMachinePoolError({ 'pool-1': [] });
+
+      expect(result).toStrictEqual([message(1, 'pool-1', 'quantity')]);
+    });
+  });
+
   // Uses the real handleConflict/changeset diffing (already covered by its own test suite in
   // normalize.test.ts) so these focus on syncMachineConfigWithLatest's own orchestration: which
   // dispatches it makes, and that a real conflict surfaces as a thrown error.

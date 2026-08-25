@@ -3,6 +3,7 @@ import { useStore, Store } from 'vuex';
 import { useI18n } from '@shell/composables/useI18n';
 import { removeObject } from '@shell/utils/array';
 import { handleConflict } from '@shell/plugins/dashboard-store/normalize';
+import merge from 'lodash/merge';
 
 /**
  * Classes to be adopted by the node badges in Machine pools
@@ -144,6 +145,45 @@ export function useMachinePools() {
     }
   }
 
+  // Per-pool field-level validation errors (e.g. "quantity" invalid on pool "worker"), keyed by
+  // pool name -> list of offending field names. Kept private to this composable - nothing else
+  // needs to read the raw map, only the formatted messages `recordMachinePoolError` returns.
+  const machinePoolErrors = ref<Record<string, string[]>>({});
+
+  /**
+   * Merges in a newly reported machine pool error and returns every pool's errors, formatted as
+   * one human-readable message per pool (e.g. "pool-a has invalid fields: quantity and roles").
+   */
+  function recordMachinePoolError(error: Record<string, string[]>): string[] {
+    machinePoolErrors.value = merge(machinePoolErrors.value, error);
+
+    return Object.entries(machinePoolErrors.value)
+      .map(([poolName, fields]) => {
+        if (!fields.length) {
+          return undefined;
+        }
+
+        const formattedFields = (() => {
+          switch (fields.length) {
+          case 1:
+            return fields[0];
+          case 2:
+            return `${ fields[0] } and ${ fields[1] }`;
+          default: {
+            const [head, ...rest] = fields;
+
+            return `${ rest.join(', ') }, and ${ head }`;
+          }
+          }
+        })();
+
+        return t('cluster.banner.machinePoolError', {
+          count: fields.length, pool_name: poolName, fields: formattedFields
+        }, true);
+      })
+      .filter((x): x is string => !!x);
+  }
+
   return {
     machinePools,
     machinePoolValidation,
@@ -154,6 +194,7 @@ export function useMachinePools() {
     hasRequiredNodes,
     removeMachinePool,
     machinePoolValidationChanged,
+    recordMachinePoolError,
   };
 }
 
