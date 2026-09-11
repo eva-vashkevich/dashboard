@@ -82,6 +82,7 @@ const showBanner = computed(() => {
       v-if="showBanner"
       color="info"
       data-testid="day-two-ops-banner"
+      class="m-0"
     >
       {{ dayTwoOpsInfo }}
     </Banner>

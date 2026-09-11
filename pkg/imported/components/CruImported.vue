@@ -552,10 +552,12 @@ export default defineComponent({
           v-if="isLocal"
           color="warning"
           label-key="imported.memberRoles.localBanner"
+          class="m-0"
         />
         <Banner
           v-if="isEdit"
           color="info"
+          class="m-0"
         >
           {{ t('cluster.memberRoles.removeMessage') }}
         </Banner>
@@ -640,6 +642,7 @@ export default defineComponent({
             v-if="!!normanCluster.enableNetworkPolicy"
             color="info"
             label-key="imported.network.banner"
+            class="m-0"
           />
           <Checkbox
             v-model:value="normanCluster.enableNetworkPolicy"

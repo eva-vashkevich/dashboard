@@ -164,6 +164,7 @@ export default defineComponent({
       v-if="versionMismatch"
       label-key="imported.basics.versionMismatch"
       color="warning"
+      class="m-0"
     />
     <div class="row row-basics">
       <div class="col-basics mr-10 span-6">

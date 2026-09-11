@@ -114,6 +114,7 @@ export default defineComponent({
     v-if="showVersionManagementBanner"
     color="info"
     data-testid="version-management-banner"
+    class="m-0"
   >
     {{ versionManagementInfo }}
   </Banner>
